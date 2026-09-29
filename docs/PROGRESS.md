@@ -199,14 +199,23 @@
 - ✅ `scope.list` 含 `com.mfcloudcalculate.networkdisk`
 - ❌ **不**登记 InstallerX 的 TargetApp，**不**加入 scope
 
-### 参考项目获取方式（国内网络）
+### 参考项目（本地检出，**只登记、不更新**）
+
+> **完整清单见 `AGENTS.md` 第 6 节「参考项目」**（7 个项目 + origin + 本地最后提交快照）。
+> 这里不重复表格，避免两处漂移。
+>
+> ⚠️ 全部在 `D:/Code/Android/Projects/OSHook/references/` 下：
+> HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric。
+> **部分可能落后上游**（`InstallerX-Revived` 是 tarball 快照、无 git 历史），作者有空再自行 `git pull`。
+> 文档里的「最后提交」只是**登记那一刻的快照，不要据此断定版本** —— 用之前先 `git log -1` 核对。
+
+获取方式（国内网络）：
 
 | 项目 | 方式 |
 |---|---|
-| HyperIsland | 本地已有 `D:/Code/Android/Projects/HyperIsland`（Flutter） |
+| git 检出的 6 个（HyperCeiler / HyperStar / HyperIsland / janus / SignHook / Capsulyric） | 本地已有，直接用；更新自行 `git pull` |
 | InstallerX Revived | `curl --noproxy '*' "https://gh-proxy.com/https://github.com/wxxsfxyzm/InstallerX-Revived/archive/refs/heads/main.tar.gz"`（`git clone` 会因 schannel 吊销检查失败） |
-| **HyperCeiler 源码** 2.10.165 | 本地已有 `D:/Code/Android/Projects/OSHook/references/HyperCeiler`；**查目标类名用这份**（字符串明文） |
-| **HyperCeiler 发布版 APK** 2.10.166-55d51aa8d-r4667 | 本地已有 `D:/Code/Android/APK/Hook/HyperCeiler_2.10.166-55d51aa8d-r4667.apk`（`com.sevtinge.hyperceiler`）→ 已反编译到 `APK/out/hyperceiler`（3,999 类，`--no-res`） |
+| **HyperCeiler 发布版 APK** 2.10.166-55d51aa8d-r4667 | 本地已有 `D:/Code/Android/APK/Hook/HyperCeiler_2.10.166-55d51aa8d-r4667.apk`（`com.sevtinge.hyperceiler`）→ 已反编译到 `APK/out/hyperceiler`（3,999 类，`--no-res`）。**查目标类名用源码**（明文），APK 只看类结构 |
 
 关键参考文件：`app/src/main/java/com/rosan/installer/ui/page/miuix/settings/home/MiuixHomePage.kt`
 
@@ -326,6 +335,17 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-09-30（登记本地参考项目清单）
+
+- 把 `D:/Code/Android/Projects/OSHook/references/` 下**全部 7 个**参考项目登记进 `AGENTS.md` 第 6 节
+  （HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric），
+  每行含 origin（GitHub）与**本地最后提交快照**
+- 明确标注「**只登记、不更新**」：**部分检出可能落后上游**（`InstallerX-Revived` 为 tarball 快照、无 git 历史），
+  文档里的提交哈希只是登记时刻快照，**不要据此断定版本**，用前自行 `git log -1` 核对
+- 订正过期说法：HyperCeiler 源码检出 HEAD 已是 `55d51aa8d`（2026-09-16，`versionName = "2.10.166"`），
+  **与手头 APK 同一提交**；删掉旧文档里「源码 2.10.165、比 APK 旧」的错误结论
+- `PROGRESS.md` 不重复整表，改为指向 AGENTS.md（避免两处漂移）
 
 ### 2026-09-27（修复：切页签后自动弹出「批量重启」确认框）
 

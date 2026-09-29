@@ -316,18 +316,23 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 | `APK/out/hyperceiler` | **HyperCeiler 2.10.166-55d51aa8d-r4667**（参考模块，非 Hook 目标） | 3,999 |
 | `APK/out/hyperstar` / `miuihome` / `miuihome2` | HyperStar / 系统桌面（UI 参考） | — |
 
-### 参考项目（同类模块源码 / 发布版，**实现参考**，不是 Hook 目标）
+### 参考项目（本地检出，**实现参考**，不是 Hook 目标）
 
-`D:/Code/Android/Projects/OSHook/references/` 下是同类模块的**源码检出**；
-HyperCeiler 另外补了一份**发布版 APK 的反编译产物**（版本比源码新：2.10.166 vs 2.10.165）。
+本地参考项目都在 **`D:/Code/Android/Projects/OSHook/references/`** 下，这里**只登记、不更新**：
 
-| 项目 | 类型 | 本地路径 | 用途 |
+> ⚠️ **「本地最后提交」是写入本文档那一刻的快照**；**部分仓库可能落后于上游**，
+> 作者有空会自行 `git pull` 更新 —— **不要据此断定版本**，用之前先自己 `git log -1` 核对。
+> 另外 `HyperCeiler` 还有一份**发布版 APK 的反编译产物**（见上方「已反编译产物」表）。
+
+| 项目 | origin（GitHub） | 本地最后提交（快照） | 用途 |
 |---|---|---|---|
-| **HyperCeiler** | 源码 2.10.165 | `Projects/OSHook/references/HyperCeiler`（`app/` + `library/libhook/`） | **优先用它找参考**：字符串是明文，可直接 grep 目标类名/方法名 |
-| **HyperCeiler** | **APK 2.10.166-55d51aa8d-r4667** | `APK/Hook/HyperCeiler_2.10.166-55d51aa8d-r4667.apk` → 反编译产物 `APK/out/hyperceiler`（3,999 类） | 看清**发布版**的类结构 / 实现路径（对照当前 HyperOS 版本） |
-| HyperStar | 源码 | `Projects/OSHook/references/HyperStar` | 控制中心磁贴卡片编辑交互 |
-| HyperIsland / janus / SignHook / Capsulyric | 源码 | `Projects/OSHook/references/*` | 各 App Hook 点线索 |
-| InstallerX Revived | 源码 | `Projects/OSHook/references/InstallerX-Revived` | 首页 Miuix 布局参考 |
+| **HyperCeiler** | `ReChronoRain/HyperCeiler` | `55d51aa8d` 2026-09-16（**与手头 APK 同一提交**） | **主要参考**：Hook 实现思路 + **明文目标类名**（查类名 grep 这份，别 grep APK） |
+| HyperStar | `YunZiA/HyperStar` | `ab51f1c` 2025-10-01 | 控制中心磁贴卡片编辑交互（本模块 `cc_card_tiles` 即参考其 `QSCardTileList`） |
+| HyperIsland | `1812z/HyperIsland` | `bc541ae` 2026-03-27 | 首页状态卡 / 状态格子布局参考（Flutter 项目） |
+| InstallerX-Revived | `wxxsfxyzm/InstallerX-Revived` | **非 git**（tarball 快照，2026-09-27 下载） | 首页 Miuix 布局（`MiuixHomePage.kt`） |
+| janus | `penguinyzsh/janus` | `f58e051` 2026-03-27 | 各 App Hook 点线索（**本项目尚未用到**） |
+| SignHook | `xihan123/SignHook` | `4f5f8ad` 2026-03-25 | 同上，仅备查（**未分析**） |
+| Capsulyric | `FrancoGiudans/Capsulyric` | `8a3bead` 2026-03-25 | 同上，仅备查（**未分析**） |
 
 **用 HyperCeiler 找参考时的两个坑（已实测）**：
 
