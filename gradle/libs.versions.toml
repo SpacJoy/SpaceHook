@@ -1,0 +1,37 @@
+[versions]
+# AGP 需 >= 9.1.0：Miuix 传递依赖 androidx.core 1.19.x / materialkolor 5.0.1 要求 compileSdk 37
+agp = "9.1.0"
+kotlin = "2.4.20"
+composeMultiplatform = "1.12.0"
+miuix = "0.9.4"
+libxposed = "102.0.0"
+coreKtx = "1.19.1"
+activityCompose = "1.13.0"
+lifecycle = "2.11.0"
+navigationevent = "1.1.2"
+
+[libraries]
+# ---------- Miuix (Compose Multiplatform UI) ----------
+miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui-android", version.ref = "miuix" }
+miuix-preference = { module = "top.yukonga.miuix.kmp:miuix-preference-android", version.ref = "miuix" }
+miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons-android", version.ref = "miuix" }
+miuix-nav = { module = "top.yukonga.miuix.kmp:miuix-nav-android", version.ref = "miuix" }
+
+# ---------- Xposed (compileOnly，运行时由框架提供) ----------
+libxposed-api = { module = "io.github.libxposed:api", version.ref = "libxposed" }
+# 模块 App 侧与框架通信（激活状态 / RemotePreferences / 已生效进程）
+libxposed-service = { module = "io.github.libxposed:service", version.ref = "libxposed" }
+
+# ---------- AndroidX ----------
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-navigationevent-compose = { module = "androidx.navigationevent:navigationevent-compose", version.ref = "navigationevent" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

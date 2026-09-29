@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 背景圆角方块 -->
+    <path
+        android:fillColor="#3D5AFE"
+        android:pathData="M24,10h60a14,14 0 0 1 14,14v60a14,14 0 0 1 -14,14h-60a14,14 0 0 1 -14,-14v-60a14,14 0 0 1 14,-14z" />
+    <!-- 钩形符号：象征 Hook -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,26c-3.3,0 -6,2.7 -6,6v28.5c0,4.1 -3.4,7.5 -7.5,7.5s-7.5,-3.4 -7.5,-7.5v-6h-8v6c0,8.6 6.9,15.5 15.5,15.5S56,69.1 56,60.5V32c0,-3.3 -2.7,-6 -6,-6z" />
+    <!-- 圆点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M72,30m-6,0a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
+</vector>

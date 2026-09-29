@@ -1,0 +1,26 @@
+# ---- IDE / 本地机器配置 ----
+*.iml
+.idea/
+.DS_Store
+local.properties
+*.log
+
+# ---- 构建产物 / 原生 ----
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# ---- 工具链状态目录（各机器各自生成，不入库）----
+.mimocode/
+.workbuddy/
+.dsh-mcp-jadx-headless.md
+.sbtest
+.wtest
