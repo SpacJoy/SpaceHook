@@ -389,6 +389,24 @@ LSPosed 官方文档与实际行为一致：
 > If the modules were installed manually, simply **installing the new APK over the existing one
 > and restarting** is usually sufficient.
 
+### 连接真机（无线 adb）
+
+手机是 `Xiaomi 25098PN5AC`（`192.168.31.5`，同一路由器下），**两种连法**：
+
+```bash
+# 首选：5555 是手机端「用模块固定」的 adb TCP 端口 —— 重启仍然有效，不用重开无线调试
+adb connect 192.168.31.5:5555
+
+# 备用：无线调试（TLS）
+adb mdns services        # 找 _adb-tls-connect._tcp 直接 connect
+adb pair <ip:port> <码>  # 仅首次/换电脑时需要；配对码每次打开配对弹窗都会刷新（旧码会报 protocol fault）
+```
+
+- 手机同时存在多条连接（5555 + TLS + 幽灵 `emulator-5554 offline`）时，命令必须带
+  `-s 192.168.31.5:5555`，否则 adb 报 `more than one device`
+- 幽灵 `emulator-5554 offline` 来自本地 5555 被 `Androws.exe` 占用，与手机无关，忽略即可
+- 5555 是**明文 adb**，只在家庭网络可接受
+
 ### 标准更新流程
 
 ```bash
