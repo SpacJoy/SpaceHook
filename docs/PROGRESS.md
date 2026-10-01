@@ -336,6 +336,17 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 
 ## 五、变更日志
 
+### 2026-10-02（移除「媒体播放器大小」hook）
+
+- **删掉** `cc_media_size`（调整控制中心媒体播放器卡片宽度/列数）：
+  - `common/.../HookCatalog.kt` 元数据条目（含 `span_size` 参数）
+  - `libhook/.../base/HookRegistry.kt` 注册行
+  - `libhook/.../rules/systemui/MediaSizeHook.kt` 实现文件
+- 已注册 Hook 从 7 个降为 **6 个**（首页/设置页计数取自 `HookCatalog.hooks.size`，自动跟随，无需改 UI）
+- `scope.list` **无需改动**：目标 `com.android.systemui` 仍被其余 4 个 SystemUI hook（lock_colon /
+  device_center_size / cc_card_order / cc_card_tiles）使用
+- 构建 `BUILD SUCCESSFUL`
+
 ### 2026-09-30（登记本地参考项目清单）
 
 - 把 `D:/Code/Android/Projects/OSHook/references/` 下**全部 7 个**参考项目登记进 `AGENTS.md` 第 6 节

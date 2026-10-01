@@ -205,30 +205,6 @@ object HookCatalog {
                 ),
             ),
         ),
-        HookMeta(
-            id = "cc_media_size",
-            name = "媒体播放器大小",
-            description = "调整控制中心媒体播放器卡片的宽度（占控制中心网格的列数），可放大到整行或缩小。",
-            // 参考：hook MediaPlayerController#getSpanSize()（原生返回 getRightOrLeft() ? 2 : 4，
-            // 即默认半宽、折叠屏宽屏整行）。GridLayoutManager 会把 span 收敛到 1..4。
-            targetPackages = listOf("com.android.systemui"),
-            category = HookCategory.SYSTEM_UI,
-            defaultEnabled = false,
-            hookPoints = listOf(
-                "com.android.systemui.shared.plugins.PluginInstance\$PluginFactory#createPluginContext（插件 ClassLoader 捕获入口）",
-                "miui.systemui.controlcenter.panel.main.media.MediaPlayerController#getSpanSize",
-            ),
-            params = listOf(
-                HookParam.IntRange(
-                    key = "span_size",
-                    title = "卡片宽度",
-                    summary = "占控制中心网格列数：2 = 半宽（默认）；4 = 整行；1 = 最窄；0 = 跟随系统自适应",
-                    default = 0,
-                    min = 0,
-                    max = 4,
-                ),
-            ),
-        ),
     )
 
     // ==================== 查询辅助 ====================
