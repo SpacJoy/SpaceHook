@@ -336,6 +336,22 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 
 ## 五、变更日志
 
+### 2026-10-02（环境信息登记：APK 提取规则 / 手机端 MT MCP / 参考项目迁移）
+
+用户提供三条环境信息，已核验后写入 `AGENTS.md`（**未改任何代码**）：
+
+1. **APK 素材目录** `D:/Code/Android/APK/Hook` 现有 **9 个 APK**，全部用 `aapt2 dump badging`
+   核实包名/版本后补进「APK 素材」表（新增：时钟 `com.android.deskclock` 18.26.0、
+   网易云音乐 `com.netease.cloudmusic` 9.6.05 —— 两者**用途待定**）
+2. **⚠️ 手机端 APK 版本更新时改提手机端 APK 分析**：写明三步流程
+   （`dumpsys package` 对比版本 → `pm path` + `adb pull` 提取；小范围分析可直接用手机端 MT MCP）
+3. **手机端 MT 管理器 MCP** `http://192.168.31.5:8787/mcp`：已实测握手成功
+   （`MT MCP 0.2.0`，协议 2025-11-25，52 个工具 = 31 个 `mt_apk_*` + 21 个 `mt_file_*`，
+   含 `mt_apk_dex_outline_class` / `mt_apk_dex_xref` 等 dex 分析能力）；
+   记录了 PowerShell 内联 JSON 会被吃引号报 `Parse error` 的调用坑（要写临时文件 + `--data-binary @`）
+4. **参考项目迁移**：`OSHook/references` → **`Projects/Referenzprojekt`**（7 个检出全部在新位置，
+   旧路径已不存在），AGENTS.md 参考项目表 7 处路径已更新
+
 ### 2026-10-02（移除「媒体播放器大小」hook）
 
 - **删掉** `cc_media_size`（调整控制中心媒体播放器卡片宽度/列数）：
@@ -345,7 +361,8 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 - 已注册 Hook 从 7 个降为 **6 个**（首页/设置页计数取自 `HookCatalog.hooks.size`，自动跟随，无需改 UI）
 - `scope.list` **无需改动**：目标 `com.android.systemui` 仍被其余 4 个 SystemUI hook（lock_colon /
   device_center_size / cc_card_order / cc_card_tiles）使用
-- 构建 `BUILD SUCCESSFUL`
+- 构建 `BUILD SUCCESSFUL`；已 `adb` 覆盖安装到真机并截图复核：Hook 页「系统界面」卡片由
+  **5 个功能 → 4 个功能** ✓
 
 ### 2026-09-30（登记本地参考项目清单）
 

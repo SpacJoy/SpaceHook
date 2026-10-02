@@ -318,7 +318,7 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 
 ### 参考项目（本地检出，**实现参考**，不是 Hook 目标）
 
-本地参考项目都在 **`D:/Code/Android/Projects/OSHook/references/`** 下，这里**只登记、不更新**：
+本地参考项目都在 **`D:/Code/Android/Projects/Referenzprojekt/`** 下（**2026-10-02 从 `OSHook/references` 迁来**），这里**只登记、不更新**：
 
 > ⚠️ **「本地最后提交」是写入本文档那一刻的快照**；**部分仓库可能落后于上游**，
 > 作者有空会自行 `git pull` 更新 —— **不要据此断定版本**，用之前先自己 `git log -1` 核对。
@@ -353,19 +353,63 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 - Python 客户端已内置 `ProxyHandler({})` 禁用代理
 - GitHub 走 hosts 加速后，`--noproxy '*'` 可正常访问；Maven Central / dl.google.com 走代理
 
-### 待分析素材
+### APK 素材（`D:/Code/Android/APK/Hook`）
 
-| APK | 真实包名（已核实） | 用途 |
-|---|---|---|
-| `系统界面_17.03.260226.r.apk` | `com.android.systemui` | LockColon |
-| `系统界面组件_18.3.2.22.0.apk` | `miui.systemui.plugin` | DeviceCenterSize |
-| `录音机_8.1.5-779121d13.apk` | `com.android.soundrecorder` | DisableListAutoPlay |
-| `123云盘_3.3.0.apk` | `com.mfcloudcalculate.networkdisk` | InstallerRedirect |
+全部 9 个（包名 / 版本已用 `aapt2 dump badging` 核实）：
+
+| APK | 包名 | 版本 | 用途 |
+|---|---|---|---|
+| `系统界面_17.03.260226.r.apk` | `com.android.systemui` | 17.03.260226.r | LockColon / DeviceCenterSize / cc_card_* 等 4 个 SystemUI hook |
+| `系统界面组件_18.3.2.22.0.apk` | `miui.systemui.plugin` | 18.3.2.22.0 | 控制中心插件代码（DeviceCenterSize 的类来源） |
+| `录音机_8.1.5-779121d13.apk` | `com.android.soundrecorder` | 8.1.5-779121d13 | DisableListAutoPlay |
+| `123云盘_3.3.0.apk` | `com.mfcloudcalculate.networkdisk` | 3.3.0 | InstallerRedirect |
+| `时钟_18.26.0.apk` | `com.android.deskclock` | 18.26.0 | 新增素材（2026-10-02），**用途待定** |
+| `网易云音乐_9.6.05.apk` | `com.netease.cloudmusic` | 9.6.05 | 新增素材（2026-10-02），**用途待定** |
+| `系统桌面_RELEASE-8.01.02.7722-….apk` | `com.miui.home` | 8.01.02.7722 | 桌面参考（已有 `APK/out/miuihome*` 反编译产物） |
+| `HyperCeiler_2.10.166-55d51aa8d-r4667.apk` | `com.sevtinge.hyperceiler` | 2.10.166 | 参考模块（**非 Hook 目标**） |
+| `HyperStar_2.2.0_202604250117.apk` | `com.yunzia.hyperstar` | 2.2.0 | 参考模块（**非 Hook 目标**） |
 
 > 💡 查任意 APK 包名的最快方式（**无需 jadx、无需反编译**）：
 > ```bash
 > "D:/Code/Android/SDK/build-tools/36.1.0/aapt2.exe" dump badging app.apk | grep "^package:"
 > ```
+
+**⚠️ 手机端 APK 版本更新时，改提手机端 APK 来分析**（本地素材可能是旧版，分析旧包会得出失效的类名/方法名）：
+
+```bash
+# 1) 对比版本：手机端 vs 本地素材
+adb -s 192.168.31.5:5555 shell dumpsys package com.example.app | grep -E "versionName|versionCode"
+# 2) 手机端更新 → 提取手机端 APK 到素材目录
+adb -s 192.168.31.5:5555 shell pm path com.example.app      # 输出 package:/data/app/.../base.apk
+adb -s 192.168.31.5:5555 pull /data/app/.../base.apk "D:/Code/Android/APK/Hook/<名称>.apk"
+# 3) 只做小范围分析时，也可以不 pull，直接用手机端 MT 管理器 MCP（见下节）
+```
+
+### 手机端 MT 管理器 MCP（`http://192.168.31.5:8787/mcp`）
+
+手机上 MT 管理器开的 **MCP 服务**（Streamable HTTP + JSON-RPC，server = `MT MCP 0.2.0`，
+协议 `2025-11-25`），**已实测可用**：`POST initialize` → HTTP 200 返回 `serverInfo`，
+`tools/list` 可直接取（当前 **52 个工具**，无需 session）。
+
+- **`mt_apk_*`（31 个）—— 手机端 APK 工作区分析/改包**：
+  `mt_apk_open` / `mt_apk_list` / `mt_apk_search` / `mt_apk_read_text` / `mt_apk_read_bytes`、
+  **`mt_apk_dex_outline_class`（类大纲）、`mt_apk_dex_xref`（交叉引用）**、
+  `mt_apk_resource_read` / `mt_apk_resource_xref`、
+  `mt_apk_native_*`（so 反汇编 / CFG / 字符串与指令 patch）、
+  `mt_apk_edit_*` + `mt_apk_build`（改包重打包）
+- **`mt_file_*`（21 个）—— 手机端文件系统**：`mt_file_list` / `mt_file_search` /
+  `mt_file_read_text` / `mt_file_search_text` / `mt_file_copy` / `mt_file_patch_bytes` …
+- 用途：**手机端 APK 已更新、本地还没提包时**，直接在手机上做 dex 查类/交叉引用，
+  或用 `mt_file_copy_workspace_entry` 把单个条目取下来看（注意它拒绝 `classes*.dex` / `resources.arsc` / `AXML`）
+- ⚠️ **调用姿势（PowerShell 踩坑）**：JSON body 直接内联在命令行里会被引号解析吃掉，报
+  `Parse error`（HTTP 400）；先把 JSON 写进临时文件，再用 `curl --data-binary @文件` 发
+
+```bash
+# 最小握手示例
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"dsh","version":"1"}}}' > /tmp/m.json
+curl -sS -X POST http://192.168.31.5:8787/mcp -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" --data-binary @/tmp/m.json
+```
 
 ### 旧实现参考（重要线索，但**不能直接复用**）
 
