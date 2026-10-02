@@ -336,6 +336,24 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 
 ## 五、变更日志
 
+### 2026-10-03（控制中心类 Hook 归类到「控制中心」折叠子菜单）
+
+用户需求："控制中心类hook归类到控制中心二级菜单"，形态确认为**卡片内折叠子菜单**（不新增整屏页面）：
+
+- `common/.../HookMeta.kt`：`HookCategory` 新增 `CONTROL_CENTER("控制中心")`
+- `common/.../HookCatalog.kt`：`device_center_size` / `cc_card_order` / `cc_card_tiles` 三个 hook 的
+  `category` 由 `SYSTEM_UI` 改为 `CONTROL_CENTER`（`lock_colon` 保持 `SYSTEM_UI`）
+- `app/.../ui/screens/HookListScreen.kt`：`AppHookCard` 展开区按 `category` 分区——非控制中心功能行
+  平铺在前（lock_colon 首行不变），控制中心类收纳进新增的 `ControlCenterMenu` 折叠子菜单
+  （标题「控制中心」+「N 个功能」，`ChevronForward` 旋转动画指示展开/收起，
+  `rememberSaveable` 记住状态、**默认折叠**），展开后复用 `HookRow` 渲染
+- 归类范围共 3 个功能：融合设备中心卡片尺寸 / 控制中心卡片排序 / 磁贴卡片自定义内容；
+  锁屏大时钟显示冒号保持平铺在外
+- 构建 `BUILD SUCCESSFUL`（⚠️ 构建需用 **JDK 21**：`$env:JAVA_HOME="D:\Program Files\Java\jdk-21.0.12.1"`；
+  zulu-27 的 jlink 处理 android-37 `core-for-system-modules` 报版本签名不匹配，
+  `:libhook:compileDebugJavaWithJavac` 的 `JdkImageTransform` 会失败）；
+  已 adb 覆盖安装真机，截图复核展开（3 行 + 朝下箭头）/ 收起（单行 + 朝右箭头）两种状态 ✓
+
 ### 2026-10-02（环境信息登记：APK 提取规则 / 手机端 MT MCP / 参考项目迁移）
 
 用户提供三条环境信息，已核验后写入 `AGENTS.md`（**未改任何代码**）：

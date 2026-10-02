@@ -107,7 +107,7 @@ object HookCatalog {
             // 因此只能注入 SystemUI 进程；插件 ClassLoader 通过 hook
             // PluginInstance$PluginFactory#createPluginContext 捕获（HyperStar OS3 同款路径）。
             targetPackages = listOf("com.android.systemui"),
-            category = HookCategory.SYSTEM_UI,
+            category = HookCategory.CONTROL_CENTER,
             defaultEnabled = false,
             hookPoints = listOf(
                 "com.android.systemui.shared.plugins.PluginInstance\$PluginFactory#createPluginContext（插件 ClassLoader 捕获入口）",
@@ -166,7 +166,7 @@ object HookCatalog {
             // 原生优先级：卡片20 / 媒体30 / 亮度31 / 音量32 / 融合设备中心50 / 设备控制51 / 列表100 / 编辑200。
             // 数值越小越靠上；全部恢复默认后与系统完全一致。
             targetPackages = listOf("com.android.systemui"),
-            category = HookCategory.SYSTEM_UI,
+            category = HookCategory.CONTROL_CENTER,
             defaultEnabled = false,
             hookPoints = listOf(
                 "com.android.systemui.shared.plugins.PluginInstance\$PluginFactory#createPluginContext（插件 ClassLoader 捕获入口）",
@@ -190,7 +190,7 @@ object HookCatalog {
             // 参考 HyperStar QSCardTileList：hook QSController#getCardStyleTileSpecs()，
             // 返回用户配置的 tile spec 列表（系统原生只支持 wifi/cell 或 wifi/bt 两组）。
             targetPackages = listOf("com.android.systemui"),
-            category = HookCategory.SYSTEM_UI,
+            category = HookCategory.CONTROL_CENTER,
             defaultEnabled = false,
             hookPoints = listOf(
                 "com.android.systemui.shared.plugins.PluginInstance\$PluginFactory#createPluginContext（插件 ClassLoader 捕获入口）",

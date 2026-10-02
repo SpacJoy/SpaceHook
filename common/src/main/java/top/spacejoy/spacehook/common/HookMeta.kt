@@ -44,6 +44,9 @@ data class TargetApp(
  */
 enum class HookCategory(val displayName: String) {
     SYSTEM_UI("系统界面"),
+
+    /** 控制中心类（卡片/磁贴相关），UI 上归入「控制中心」折叠子菜单 */
+    CONTROL_CENTER("控制中心"),
     SYSTEM_FRAMEWORK("系统框架"),
     SOUND_RECORDER("录音机"),
     INSTALLER("安装器"),

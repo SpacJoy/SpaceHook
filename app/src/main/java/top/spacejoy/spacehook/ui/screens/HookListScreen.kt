@@ -1,6 +1,7 @@
 package top.spacejoy.spacehook.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -48,6 +49,7 @@ import top.spacejoy.spacehook.SettingsStore
 import top.spacejoy.spacehook.common.AppCategory
 import top.spacejoy.spacehook.common.CC_ORDER_CARDS
 import top.spacejoy.spacehook.common.HookCatalog
+import top.spacejoy.spacehook.common.HookCategory
 import top.spacejoy.spacehook.common.HookMeta
 import top.spacejoy.spacehook.common.HookParam
 import top.spacejoy.spacehook.common.OrderCard
@@ -66,6 +68,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -375,6 +378,70 @@ private fun AppHookCard(
             )
         }
 
+        if (expanded) {
+            HorizontalDivider()
+            val (controlCenterHooks, plainHooks) =
+                hooks.partition { it.category == HookCategory.CONTROL_CENTER }
+            plainHooks.forEach { hook ->
+                HookRow(hook = hook, appEnabled = appEnabled, onOpenConfig = onOpenConfig)
+            }
+            if (controlCenterHooks.isNotEmpty()) {
+                ControlCenterMenu(
+                    hooks = controlCenterHooks,
+                    appEnabled = appEnabled,
+                    onOpenConfig = onOpenConfig,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 「控制中心」折叠子菜单：把控制中心类 Hook 归类收纳进可展开/收起的分组。
+ *
+ * 标题行点击展开/收起；展开后复用 [HookRow] 渲染组内功能行。
+ */
+@Composable
+private fun ControlCenterMenu(
+    hooks: List<HookMeta>,
+    appEnabled: Boolean,
+    onOpenConfig: (HookMeta) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        label = "controlCenterMenuArrow",
+    )
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 12.dp, horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "控制中心",
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${hooks.size} 个功能",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+            Icon(
+                imageVector = MiuixIcons.ChevronForward,
+                contentDescription = if (expanded) "收起控制中心分组" else "展开控制中心分组",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = arrowRotation },
+            )
+        }
         if (expanded) {
             HorizontalDivider()
             hooks.forEach { hook ->
