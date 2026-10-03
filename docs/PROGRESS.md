@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-03（撤销三合一状态图标移植：移除 `combined_status`）
+> 最后更新：2026-10-04（新增「状态栏功耗/温度仪表」Hook：`status_bar_meter`）
 
 ---
 
@@ -24,6 +24,7 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ⚠️ 待真机验证 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度 / 网速（最多 4 槽，单行或双行）；构建通过，**当前无设备连接**，装机验证待办 |
 
 ---
 
@@ -340,6 +341,29 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（新增「状态栏功耗/温度仪表」Hook：`status_bar_meter`）
+
+- **功能**：接管状态栏「实时网速」的显示位置，改为显示所选指标 —— 功耗（W）、电流（mA）、
+  CPU 温度、电池温度、实时网速；最多 4 项，可单行 / 双行，字号与粗细可调，刷新间隔可配。
+  默认**关闭**，需重启系统界面生效。分类挂在「系统界面 → 状态栏」子菜单下
+  （该子菜单自三合一撤销后一直空置，本次挂入第一个功能）。
+- **新增文件**：
+  - `libhook/.../rules/systemui/StatusBarMeterHook.kt` —— 接管链路 + 定时刷新 + 文本组装
+  - `libhook/.../rules/systemui/meter/MeterReader.kt` —— 数据源（sysfs / 粘性电池广播 / TrafficStats）
+- **登记**：`HookCatalog`（`status_bar_meter`，`HookCategory.STATUS_BAR`，10 个 `HookParam`）、
+  `HookRegistry`（`"status_bar_meter" to { StatusBarMeterHook() }`）。UI 无需改动——
+  状态栏分类走已有的 `HookGroupMenu` 折叠子菜单，`Select` / `IntRange` 参数走已有的内联渲染。
+- **技术要点**：
+  1. 不自己插布局，直接接管原生 `NetworkSpeedView`（原生网速本来就占着状态栏右侧槽位）。
+  2. 原生「显示实时网速」开关关闭时该视图**根本不会被创建**，因此必须拦 D8 合成的静态桥
+     `NetworkSpeedController#-$$Nest$mupdateVisibility`，在计算 `visible` 前把
+     `mShowNetworkSpeed` / `mNetworkConnected` 钉成 `true`。
+  3. 改参数一律 `chain.proceed(Object[])`——libxposed API 102 的 `Chain.getArgs()` 不可变，
+     `chain.args[i] = ...` 会抛 `UnsupportedOperationException` 并被回调的 try 吞掉（静默失效）。
+  4. 原生只在网速变化时推送，功耗 / 温度会「冻住」，故仪表自带主线程定时器（默认 1000ms）。
+- **构建**：`BUILD SUCCESSFUL`。**真机验证待办**——当前无设备连接（仅一条陈旧的
+  `emulator-5554 offline`），需接上手机后安装验证。
 
 ### 2026-10-03（撤销三合一状态图标移植：移除 `combined_status`）
 

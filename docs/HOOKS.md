@@ -1,6 +1,6 @@
-﻿# Hook 功能清单与 hook 点定位表
+# Hook 功能清单与 hook 点定位表
 
-> **复核状态**：8 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-03）。
+> **复核状态**：9 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-04）。
 > 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译
 > （jadx-ai-mcp 插件已弃用；jadx-GUI 不再打开，all.jar 仅 CLI 模式）；
 > 抖音（55 个 dex）改用 `dexdump`（build-tools 36.1.0）按 class_defs 逐类验证。
@@ -19,6 +19,7 @@
 | `adb_stay_awake` | AOSP Framework（system_server） | 无需反编译 | ✅ 移植自 AdbStayAwake（libxposed API 102 同源） |
 | `cc_card_order` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSControlCenterList`，8 个控制器 `getPriority` |
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
+| `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`；⚠️ 待真机验证（当前无设备） |
 
 ---
 
@@ -473,7 +474,72 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 
 ---
 
-## 9. 新增 Hook 的模板
+## 9. status_bar_meter —— 状态栏功耗/温度仪表 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt` + `.../rules/systemui/meter/MeterReader.kt` |
+| 目标进程 | `com.android.systemui`（主 APK，非插件） |
+| 参数 | 4 个槽位 `Select` + 排布 `Select` + 小数位 / 单位 / 粗细 / 字号 / 刷新间隔 |
+| 默认 | **关闭**（`defaultEnabled = false`），需重启系统界面生效 |
+
+### 功能语义
+
+接管状态栏「实时网速」的显示位置，改为显示所选指标：功耗（W）、电流（mA）、
+CPU 温度、电池温度、实时网速。最多 4 项，可单行 / 双行排布。
+
+### 为什么要「接管」而不是自己插布局
+
+原生网速本来就占着状态栏右侧一个槽位（`IconManager` 里 `type == 9` 直接
+`inflate(R.layout.network_speed)`）。直接把它的文本换掉，就不用自己造图标槽、
+不用 ByteBuddy 生成假图标类，也就不存在与原生布局打架的问题。
+
+### hook 点（系统界面 17.03.260226.r）
+
+| hook 点 | 做了什么 |
+|---|---|
+| `NetworkSpeedController#updateText(String[])` | 原生推送路径：把 `args` 换成仪表文本后 `proceed` |
+| `NetworkSpeedController#-$$Nest$mupdateVisibility(Controller, String)` | 计算 `visible` 前把 `mShowNetworkSpeed` / `mNetworkConnected` 钉成 `true`（强制可见） |
+| `NetworkSpeedView#setNetworkSpeed(String, String)` | 视图写入路径：同样换成仪表文本 |
+| `NetworkSpeedView#onFinishInflate()` | 缓存视图引用、起定时刷新 |
+| `NetworkSpeedView#onDensityOrFontScaleChanged()` / `onMiuiThemeChanged(boolean)` | 系统重套文字外观后，重新套用字号 / 粗细 |
+
+### 关键坑
+
+1. **原生开关关闭时图标根本不会被创建**。`visible = mShowNetworkSpeed && mNetworkConnected && !mIsMinimalismModeOn`，
+   开关关闭 → `visible` 恒 `false` → `setNetworkSpeedIcon` 从不调用 → `IconManager` 里
+   连 `NetworkSpeedView` 都不会 inflate。所以必须拦 `-$$Nest$mupdateVisibility`
+   把两个布尔字段钉死，否则「hook 挂上了但什么都没发生」。
+   （`mIsMinimalismModeOn` 是省电精简模式，属用户主动选择，不强行覆盖。）
+2. **`-$$Nest$mupdateVisibility` 是 D8 合成的静态访问桥**，名字里带 `-` 和 `$`，
+   Java 里非法（jadx 会显示成 `m1604$$Nest$mupdateVisibility`）。dex 里的真实名字是
+   `-$$Nest$mupdateVisibility`；代码里另留了一条「静态 + 两参 + 首参是控制器 +
+   名字含 updateVisibility」的兜底匹配，防工具链改名。
+3. **改参数必须 `chain.proceed(Object[])`**：libxposed API 102 的 `Chain.getArgs()`
+   返回不可变 `List`，`chain.args[i] = ...` 会抛 `UnsupportedOperationException`
+   （被 `BaseHook` 的回调 try 吞掉，表现为「静默不生效」）。
+4. **视图不可见时 `setNetworkSpeed` 会提前 return**（`!mVisibleByController || mBlocked`），
+   所以定时器里先 `setVisibilityByController(true)` + `setBlocked(false)` 再写文本。
+5. **原生只在网速变化时推送**，功耗 / 温度会「冻住」，因此仪表自带主线程 Handler
+   定时刷新（间隔可配，默认 1000ms）；状态栏重建后 `WeakReference` 失效即自动停机，
+   等新视图的 `onFinishInflate` 再启动。
+
+### 数据源（全部只读，无 MIUI 私有 API）
+
+| 指标 | 来源 | 换算 |
+|---|---|---|
+| 功耗 | `/sys/class/power_supply/{battery,bms,Battery,…}/current_now` × `voltage_now` | `P = V×A`（µV × µA ÷ 1e12），取绝对值 |
+| 电流 | 同 `current_now` | `|µA| / 1000` → mA |
+| 电压兜底 | 电池广播 `"voltage"` | mV ÷ 1000 |
+| CPU 温度 | `/sys/class/thermal/thermal_zone*/type` 含 `cpu`（次选 `soc`/`ap`/`gpu`）→ 同目录 `temp` | 原始值 > 1000 视为毫摄氏度 |
+| 电池温度 | 电池广播 `"temperature"` | 十分之一摄氏度 ÷ 10 |
+| 网速 | `TrafficStats.getTotalRxBytes() + getTotalTxBytes()` 差分 | ÷ 间隔 → B/s，≥1024 KB/s 转 MB/s |
+
+节点不存在 → 该项本次不显示（不是显示 `0`），避免把「读不到」误报成「功耗为零」。
+
+---
+
+## 10. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx
