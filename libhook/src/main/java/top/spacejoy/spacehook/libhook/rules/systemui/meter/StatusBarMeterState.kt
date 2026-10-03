@@ -157,15 +157,12 @@ internal object StatusBarMeterState {
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        // 双行：多个贡献者时各占一行（仪表一行、网速一行）；只有一个贡献者时
-        // 第 1 段独占第一行、其余排第二行（网速即「下行一行、上行一行」）。
-        // 单行：全部挤进「数字」框，第二行留空。
+        // 左右双列：左列 = 仪表（功耗/电流/温度），右列 = 网速（下行/上行），两列各自可占两行。
+        // 单行：全部挤进「数字」框，右列留空。
         val result = if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
-            if (groups.size > 1) {
-                groups[0].joinToString(" ") to groups.drop(1).flatten().joinToString(" ")
-            } else {
-                groups[0].first() to groups[0].drop(1).joinToString(" ")
-            }
+            val rows = if (groups.any { it.size > COLUMN_MAX_PARTS_PER_ROW }) 2 else 1
+            column(groups.getOrNull(0).orEmpty(), rows) to
+                column(groups.drop(1).flatten(), rows)
         } else {
             parts.joinToString(" ") to ""
         }
@@ -176,5 +173,19 @@ internal object StatusBarMeterState {
         return result
     }
 
+    /**
+     * 把一组片段排成一列：[rows] 行时均衡切分（4 段 → 2+2，3 段 → 2+1），行间换行。
+     * 单行时全部用空格连起来。
+     */
+    private fun column(list: List<String>, rows: Int): String {
+        if (list.isEmpty()) return ""
+        if (rows <= 1) return list.joinToString(" ")
+        val half = (list.size + 1) / 2
+        return list.take(half).joinToString(" ") + "\n" + list.drop(half).joinToString(" ")
+    }
+
     private const val DEFAULT_REFRESH_MS = 1000
+
+    /** 单列里一行最多放几段；超过就分两行 */
+    private const val COLUMN_MAX_PARTS_PER_ROW = 2
 }

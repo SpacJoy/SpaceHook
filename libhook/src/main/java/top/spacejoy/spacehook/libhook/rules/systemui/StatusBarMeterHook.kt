@@ -24,10 +24,19 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
             override val order: Int = ORDER
 
             override val layout: Int
-                get() = if (cfg("single_row", OFF) == ON) {
-                    StatusBarMeterState.LAYOUT_SINGLE
-                } else {
-                    StatusBarMeterState.LAYOUT_DUAL
+                get() {
+                    // 参数页的键是 layout（0 = 单行，1 = 左右双列）
+                    val value = cfg("layout", -1)
+                    if (value >= 0) {
+                        return if (value == 1) StatusBarMeterState.LAYOUT_DUAL
+                        else StatusBarMeterState.LAYOUT_SINGLE
+                    }
+                    // 旧键兼容：single_row=1 等价于单行
+                    return if (cfg("single_row", OFF) == ON) {
+                        StatusBarMeterState.LAYOUT_SINGLE
+                    } else {
+                        StatusBarMeterState.LAYOUT_DUAL
+                    }
                 }
 
             override val bold: Boolean get() = cfg("bold", OFF) == ON
@@ -53,8 +62,12 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
                 // 「仅充电时显示」：没插电就整段留空，把原生内容顶掉
                 if (cfg("in_charge", OFF) == ON && !reader.isCharging()) return listOf("")
                 val parts = ArrayList<String>(4)
+                val trace = StringBuilder()
                 for (slot in slots) {
-                    if (slot == SLOT_OFF) continue
+                    if (slot == SLOT_OFF) {
+                        trace.append("关 ")
+                        continue
+                    }
                     val text = when (slot) {
                         SLOT_POWER -> reader.powerWatts()
                             ?.let { withUnit(MeterReader.fmt(it, decimals), "w", UNIT_POWER) }
@@ -69,14 +82,25 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
                             ?.let { withUnit(MeterReader.fmt(it, tempDigits), "℃", UNIT_TEMP) }
 
                         else -> null
-                    } ?: continue
+                    }
+                    trace.append(slotName(slot)).append(if (text == null) "=空" else "=$text").append(' ')
+                    if (text == null) continue
                     parts.add(text)
+                }
+                if (renderDiagLeft > 0) {
+                    renderDiagLeft--
+                    log("槽位诊断: 配置[${slots.joinToString(",")}] → $trace")
                 }
                 return if (cfg("reverse_order", OFF) == ON) parts.asReversed() else parts
             }
         }
 
     // ==================== 配置 ====================
+
+    /** 槽位诊断剩余次数（只打前几次，避免刷屏） */
+    private var renderDiagLeft = 10
+
+    private fun slotName(slot: Int): String = SLOT_NAMES.getOrElse(slot) { "?" }
 
     private fun cfg(key: String, def: Int): Int = PrefsBridge.getInt(HookPrefs.configKey(id, key), def)
 
@@ -116,6 +140,9 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
         const val SLOT_CURRENT = 2
         const val SLOT_CPU_TEMP = 3
         const val SLOT_BATTERY_TEMP = 4
+
+        /** 诊断用槽位名，下标与 SLOT_* 对齐 */
+        val SLOT_NAMES = arrayOf("关", "功耗", "电流", "CPU温度", "电池温度")
 
         /** [withUnit] 的单位类别 */
         const val UNIT_POWER = 1

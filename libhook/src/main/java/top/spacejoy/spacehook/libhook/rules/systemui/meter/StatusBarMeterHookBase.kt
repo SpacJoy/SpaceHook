@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import top.spacejoy.spacehook.libhook.base.BaseHook
+import top.spacejoy.spacehook.libhook.utils.PrefsBridge
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
@@ -104,6 +105,8 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                 " 状态实例=${System.identityHashCode(StatusBarMeterState)}" +
                 " 类装载器=${javaClass.classLoader?.let { System.identityHashCode(it) }}",
         )
+        // Hook 视角的配置真相：DB 里有值但这里没有，说明是框架快照没回灌
+        log("配置快照: ${PrefsBridge.dump(id)}")
     }
 
     private fun installHooks() {
@@ -284,17 +287,27 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             }
             return
         }
-        applyLayout(view, StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL)
-        // 两行都塞进数字框：单位框在原生布局里根本画不出来（见 applyLayout 注释）
-        val body = if (text.second.isEmpty()) text.first else text.first + "\n" + text.second
-        if (number.text?.toString() != body) number.text = body
-        if (unit.text.isNotEmpty()) unit.text = ""
+        val dual = StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL
+        applyLayout(view, dual)
+        // 左右双列：左列写数字框、右列写单位框。容器已被 applyLayout 换成横排 LinearLayout，
+        // 所以单位框现在真的画得出来（原生 FrameLayout 里它被 wrap_content 裁掉）。
+        // 单行时右列留空、单位框直接 GONE。
+        val left = text.first
+        val right = text.second
+        if (number.text?.toString() != left) number.text = left
+        if (right.isEmpty()) {
+            if (unit.text.isNotEmpty()) unit.text = ""
+            if (unit.visibility != View.GONE) unit.visibility = View.GONE
+        } else {
+            if (unit.text?.toString() != right) unit.text = right
+            if (unit.visibility != View.VISIBLE) unit.visibility = View.VISIBLE
+        }
         if (writeDiagLeft > 0) {
             writeDiagLeft--
             logd(
                 "写入回读: #${System.identityHashCode(view)} id=${resId(view)} vis=${view.visibility}" +
                     " shown=${view.isShown} 父=${view.parent?.javaClass?.simpleName}" +
-                    " 行数=${number.maxLines} 文本[${number.text}]",
+                    " 列=${if (dual) 2 else 1} 左[${number.text}] 右[${unit.text}]",
             )
         }
         // 首次写入时视图一定已 attach，此时打来源链才有内容
@@ -382,37 +395,99 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     }
 
     /**
-     * 单行 / 双行的实际排布。
+     * 单行 / 左右双列的实际排布。
      *
-     * 原生是「两个居中文本框 + 数字框 -4.6dp、单位框 +3.8dp 的 translationY 错位」凑出两行，
-     * 容器 `network_speed_container` 是 `wrap_content` 高，ViewGroup 默认 `clipChildren=true`。
-     * 原生字号（数字 7.0dp / 单位 6.4dp）时两个半高之和 6.7dp < 8.4dp 错位，正好不重叠也不越界。
+     * 原生容器 `network_speed_container` 是 **FrameLayout**，两个文本框都 `gravity=CENTER`
+     * 叠在同一位置，靠数字框 -4.6dp / 单位框 +3.8dp 的 `translationY` 错位凑出上下两行；
+     * 容器 `wrap_content` 高、`clipChildren=true`，所以单位框贴在容器下沿，字号一放大就被裁。
+     * 试过 BOTTOM gravity、错位归零、容器撑 MATCH_PARENT、`clipChildren=false`——**都不画**。
      *
-     * 但单位框的位置是死的：它贴在容器下沿，字号一旦放大就越出容器下边界被裁掉。实测把它改成
-     * BOTTOM gravity、错位归零、容器撑到 MATCH_PARENT、`clipChildren=false`，**屏幕上依旧只有
-     * 数字框那一行**——`写入回读` 证明单位框里文本写进去了，`视图诊断` 证明 `lp=81 ty=0.0` 生效了，
-     * 就是不画。所以单位框放弃，两行都由数字框自己换行承担。
+     * 左右并排在这个结构里做不到：两个框居中叠放，平移出去立刻被 wrap_content 的容器裁掉。
+     * 所以先把容器换成横排 `LinearLayout`（[ensureRow]），两个文本框才是真的左右相邻，
+     * 各自的宽度由内容撑开，不再有裁剪问题。
      *
-     * 于是这里只做三件事：单位框清空、两个框的错位归零、按行数配好数字框的换行能力。
+     * 之后只做：错位归零、按列数配换行能力、列内左对齐（多行才对齐成栅格）、
+     * 单行时把右列 GONE。
      */
     private fun applyLayout(view: View, dual: Boolean) {
         val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
         val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
-        if (unit.text.isNotEmpty()) unit.text = ""
+
+        ensureRow(view, number, unit)
+
+        if (number.translationX != 0f) number.translationX = 0f
         if (number.translationY != 0f) number.translationY = 0f
+        if (unit.translationX != 0f) unit.translationX = 0f
         if (unit.translationY != 0f) unit.translationY = 0f
 
-        if (dual) {
-            if (number.isSingleLine) number.isSingleLine = false
-            if (number.maxLines != 2) number.maxLines = 2
-        } else {
-            if (!number.isSingleLine) number.isSingleLine = true
-            if (number.maxLines != 1) number.maxLines = 1
-        }
+        val lines = if (dual) 2 else 1
+        number.isSingleLine = false
+        if (number.maxLines != lines) number.maxLines = lines
+        unit.isSingleLine = false
+        if (unit.maxLines != lines) unit.maxLines = lines
+
+        // 列内左对齐：两行时上下行才对齐成栅格（原生是 CENTER）
+        number.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        unit.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+
+        val target = if (dual) View.VISIBLE else View.GONE
+        if (unit.visibility != target) unit.visibility = target
 
         // 容器别裁：字号放大后文本可能超出容器高度
         val container = number.parent as? ViewGroup
         if (container != null && container.clipChildren) container.clipChildren = false
+    }
+
+    /**
+     * 把原生 `FrameLayout network_speed_container` 换成横排 `LinearLayout`，两个文本框并排。
+     *
+     * 幂等：已经是「横排 + 两个子视图」就直接返回。两个 TextView 本身不重建，
+     * 只是换父容器，所以 `mNetworkSpeedNumberText` / `mNetworkSpeedUnitText` 的字段引用一直有效，
+     * 原生 `updateResources$15()` 的 `findViewById` 也照旧能找到。
+     */
+    private fun ensureRow(view: View, number: TextView, unit: TextView): LinearLayout? {
+        val container = number.parent as? ViewGroup ?: return null
+        if (container is LinearLayout &&
+            container.orientation == LinearLayout.HORIZONTAL &&
+            container.childCount == 2
+        ) {
+            return container
+        }
+        val root = view as? ViewGroup ?: return null
+        val index = root.indexOfChild(container)
+        if (index < 0) return null
+        return try {
+            val params = container.layoutParams
+            val row = LinearLayout(view.context)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+
+            container.removeView(number)
+            container.removeView(unit)
+
+            row.addView(
+                number,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            row.addView(
+                unit,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { leftMargin = view.dp(COLUMN_GAP_DP) },
+            )
+
+            root.removeViewAt(index)
+            root.addView(row, index, params)
+            logd("容器改为横排: ${container.javaClass.simpleName} → LinearLayout(HORIZONTAL)")
+            row
+        } catch (t: Throwable) {
+            logw("容器改横排失败：${t.message}")
+            null
+        }
     }
 
     /** 一次性视图结构诊断：搞清原生到底怎么摆这两个文本框、一共几个实例 */
@@ -481,6 +556,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         const val FIELD_NETWORK_CONNECTED = "mNetworkConnected"
         const val FIELD_NUMBER_TEXT = "mNetworkSpeedNumberText"
         const val FIELD_UNIT_TEXT = "mNetworkSpeedUnitText"
+
+        /** 左右两列之间的间距（dp） */
+        const val COLUMN_GAP_DP = 6
 
         val STYLE_REFRESH_METHODS = arrayOf("onDensityOrFontScaleChanged", "onMiuiThemeChanged")
     }

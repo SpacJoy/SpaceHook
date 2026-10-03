@@ -36,6 +36,24 @@ object PrefsBridge {
         try { prefs?.getString(key, def) ?: def } catch (_: Throwable) { def }
 
     /**
+     * 诊断：导出本进程当前看到的、键名包含 [prefix] 的全部配置。
+     *
+     * RemotePreferences 是**带缓存的快照**——App 侧写入后要靠框架广播回灌。
+     * 排查「DB 里明明有值、Hook 却读到默认值」时，这里才是 Hook 视角的真相。
+     */
+    fun dump(prefix: String): String = try {
+        val all = prefs?.all
+        if (all == null) "prefs=null"
+        else all.entries
+            .filter { it.key.contains(prefix) }
+            .sortedBy { it.key }
+            .joinToString(", ") { "${it.key}=${it.value}" }
+            .ifEmpty { "（无匹配键，共 ${all.size} 个键）" }
+    } catch (t: Throwable) {
+        "读取失败：$t"
+    }
+
+    /**
      * Hook 侧写回「生效状态」，供 UI 展示。
      *
      * **必须用 `commit()` 而不是 `apply()`**：`apply()` 是异步的，

@@ -315,11 +315,11 @@ object HookCatalog {
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
-                    summary = "单行 = 全部指标排成一行；双行 = 第 1 项独占一行，其余排第二行",
+                    summary = "单行 = 全部指标挤成一行；左右双列 = 仪表在左列、网速在右列，列内各占两行",
                     default = 1,
                     options = listOf(
                         HookParam.Select.Option(0, "单行"),
-                        HookParam.Select.Option(1, "双行"),
+                        HookParam.Select.Option(1, "左右双列"),
                     ),
                 ),
                 HookParam.IntRange(
@@ -389,14 +389,14 @@ object HookCatalog {
                 HookParam.FullPage(),
                 HookParam.Select(
                     key = "layout",
-                    title = "行数",
-                    summary = "单行 = 下行、上行排在同一行；双行 = 下行一行、上行一行。" +
-                        "与「功耗/温度仪表」同时开启时，两个 Hook 各占一行",
+                    title = "排布方式",
+                    summary = "单行 = 下行、上行排在同一行；左右双列 = 下行、上行分两行放在右列。" +
+                        "与「功耗/温度仪表」同时开启时，仪表占左列、网速占右列",
                     default = -1,
                     options = listOf(
                         HookParam.Select.Option(-1, "跟随样式"),
                         HookParam.Select.Option(0, "单行"),
-                        HookParam.Select.Option(1, "双行"),
+                        HookParam.Select.Option(1, "左右双列"),
                     ),
                 ),
                 HookParam.IntRange(
