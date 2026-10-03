@@ -1,12 +1,13 @@
 package top.spacejoy.spacehook.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,22 +20,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 import top.spacejoy.spacehook.SettingsStore
 import top.spacejoy.spacehook.common.Constants
 import top.spacejoy.spacehook.common.HookCatalog
@@ -45,31 +45,23 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 整屏参数配置页 —— 形态参考 HyperCeiler 的功能设置页（`PreferenceScreen`）。
+ * 整屏参数配置页（仿「控制中心卡片排序」的交互形态）。
  *
- * 页面结构自上而下：
- * 1. **总开关卡**：功能名 + 说明 + 右侧 `Switch`（对应 HyperCeiler 页首那个无标题分类）；
- * 2. **分组卡**：按 [HookParam.group] 分组，每组一个小标题 + 一张卡；
- *    组内每项按类型渲染成 **开关行 / 下拉行 / 滑条行**；
- * 3. **底部动作**：「恢复默认」与「重启目标应用生效」。
+ * 与 [HookParamsDialog]（列表内联弹窗）的区别：
+ * - **整屏路由**，自带标题栏与返回手势，长参数列表不再挤在弹窗里滚动；
+ * - 每项参数占一整行，左侧标题 + 说明、右侧当前取值，**点按展开**候选列表（6 个以上选项时不会横向溢出）；
+ * - 数值型参数用 −/＋ 步进器就地调整；
+ * - 底部提供「恢复默认」（一次重置本 Hook 的全部参数）与「重启目标应用生效」。
  *
- * 与 HyperCeiler 的差异（有意为之）：
- * - 用 Miuix 的 Compose 控件实现，不引入其 `fan.preference.*` 依赖；
- * - 电池信息页保留本模块既有的「4 槽位自选指标」模型，
- *   而不是 HyperCeiler 那种「预设组合下拉」—— 前者可自由组合、表达力更强。
- *
- * 参数声明全部来自 [HookMeta.params]，本页只负责渲染与读写 `cfg::<hookId>::<key>`，
+ * 参数声明仍来自 [HookMeta.params]，本页只负责渲染与读写 `cfg::<hookId>::<key>`，
  * 因此新增参数不需要改动这里。
  *
  * 由导航宿主 [top.spacejoy.spacehook.ui.SpaceHookNavHost] 作为整屏路由渲染；
@@ -80,21 +72,15 @@ fun HookParamsScreen(hook: HookMeta) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 路由标记与不支持的形态不参与渲染
+    // 路由标记不参与渲染
     val params = remember(hook) {
         hook.params.filterNot { it is HookParam.CardOrder || it is HookParam.FullPage }
     }
 
-    // 全页共用的取值表：既是数据源，也让 dependsOn 能跨行联动
-    val values = remember(hook.id) {
-        mutableStateMapOf<String, Int>().apply {
-            params.forEach { put(it.key, SettingsStore.getConfigInt(hook.id, it.key, it.default)) }
-        }
-    }
-    var hookEnabled by remember(hook.id) {
-        mutableStateOf(SettingsStore.isHookEnabled(hook.id, hook.defaultEnabled))
-    }
-    var openSelectKey by remember(hook.id) { mutableStateOf<String?>(null) }
+    // 展开中的参数键（手风琴：同时只展开一项）
+    var expandedKey by rememberSaveable(hook.id) { mutableStateOf<String?>(null) }
+    // 「恢复默认」后自增，作为各行 remember 的 key 强制重新读取存储值
+    var resetSignal by remember(hook.id) { mutableStateOf(0) }
     var restarting by remember { mutableStateOf(false) }
 
     // 重启目标：跳过 system_server 与通配作用域（这两者无法单独重启）
@@ -109,26 +95,18 @@ fun HookParamsScreen(hook: HookMeta) {
         }
     }
 
-    fun put(key: String, value: Int) {
-        values[key] = value
-        SettingsStore.setConfigInt(hook.id, key, value)
-    }
-
-    fun isRowEnabled(param: HookParam): Boolean =
-        param.dependsOn.isEmpty() || (values[param.dependsOn] ?: 0) != 0
-
     fun resetAll() {
         params.forEach { param ->
             when (param) {
-                is HookParam.Toggle -> put(param.key, param.default)
-                is HookParam.Select -> put(param.key, param.default)
-                is HookParam.IntRange -> put(param.key, param.default)
+                is HookParam.Select -> SettingsStore.setConfigInt(hook.id, param.key, param.default)
+                is HookParam.IntRange -> SettingsStore.setConfigInt(hook.id, param.key, param.default)
                 is HookParam.MultiSelect -> Unit
                 is HookParam.CardOrder -> Unit
                 is HookParam.FullPage -> Unit
             }
         }
-        openSelectKey = null
+        expandedKey = null
+        resetSignal += 1
         toast(context, "已恢复默认参数")
     }
 
@@ -139,80 +117,46 @@ fun HookParamsScreen(hook: HookMeta) {
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(12.dp))
+        Text(
+            text = "点按任意一项即可调整，改动立即保存。点「−/＋」调整数值。",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+        )
 
-        // ① 总开关卡
+        Spacer(Modifier.height(8.dp))
+        SmallTitle("参数")
+        Spacer(Modifier.height(4.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = hook.name, style = MiuixTheme.textStyles.body1)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = hook.description,
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Switch(
-                    checked = hookEnabled,
-                    onCheckedChange = { checked ->
-                        hookEnabled = checked
-                        SettingsStore.setHookEnabled(hook.id, checked)
-                    },
-                )
-            }
-        }
+            Column {
+                params.forEachIndexed { index, param ->
+                    when (param) {
+                        is HookParam.Select -> SelectBlock(
+                            hookId = hook.id,
+                            param = param,
+                            resetSignal = resetSignal,
+                            expanded = expandedKey == param.key,
+                            onToggle = {
+                                expandedKey = if (expandedKey == param.key) null else param.key
+                            },
+                        )
 
-        // ② 分组卡（groupBy 保留声明顺序）
-        params.groupBy { it.group }.forEach { (group, items) ->
-            Spacer(Modifier.height(16.dp))
-            SmallTitle(group.ifEmpty { "参数" })
-            Spacer(Modifier.height(4.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Column {
-                    items.forEachIndexed { index, param ->
-                        val enabled = isRowEnabled(param)
-                        when (param) {
-                            is HookParam.Toggle -> ToggleRow(
-                                param = param,
-                                checked = (values[param.key] ?: param.default) != 0,
-                                enabled = enabled,
-                                onChange = { put(param.key, if (it) 1 else 0) },
-                            )
+                        is HookParam.IntRange -> RangeBlock(
+                            hookId = hook.id,
+                            param = param,
+                            resetSignal = resetSignal,
+                        )
 
-                            is HookParam.Select -> SelectRow(
-                                param = param,
-                                current = values[param.key] ?: param.default,
-                                enabled = enabled,
-                                onClick = { openSelectKey = param.key },
-                            )
-
-                            is HookParam.IntRange -> RangeRow(
-                                param = param,
-                                value = values[param.key] ?: param.default,
-                                enabled = enabled,
-                                onChange = { put(param.key, it) },
-                            )
-
-                            // 多选型参数（磁贴内容）走 TilePickerScreen，不会出现在本页
-                            is HookParam.MultiSelect -> Unit
-                            is HookParam.CardOrder -> Unit
-                            is HookParam.FullPage -> Unit
-                        }
-                        if (index != items.lastIndex) {
-                            HorizontalDivider()
-                        }
+                        // 多选型参数（磁贴内容）走 TilePickerScreen，不会出现在本页
+                        is HookParam.MultiSelect -> Unit
+                        is HookParam.CardOrder -> Unit
+                        is HookParam.FullPage -> Unit
+                    }
+                    if (index != params.lastIndex) {
+                        HorizontalDivider()
                     }
                 }
             }
@@ -256,50 +200,102 @@ fun HookParamsScreen(hook: HookMeta) {
 
         Spacer(Modifier.height(24.dp))
     }
+}
 
-    // 下拉候选对话框
-    openSelectKey?.let { key ->
-        val param = params.firstOrNull { it.key == key } as? HookParam.Select
-        if (param == null) {
-            openSelectKey = null
-        } else {
-            OverlayDialog(
-                title = param.title,
-                show = true,
-                onDismissRequest = { openSelectKey = null },
+/**
+ * 单选参数行：点按展开候选列表（竖直排列 + ✓ 标记当前值）。
+ *
+ * 竖直展开而不是横排芯片，是为了让「关闭 / 功耗 / 电流 / CPU 温度 / 电池温度 / 网速」
+ * 这类 5 项以上的候选不会在窄屏上横向溢出。
+ */
+@Composable
+private fun SelectBlock(
+    hookId: String,
+    param: HookParam.Select,
+    resetSignal: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    var value by remember(hookId, param.key, resetSignal) {
+        mutableStateOf(SettingsStore.getConfigInt(hookId, param.key, param.default))
+    }
+    val currentLabel = param.options.firstOrNull { it.value == value }?.label ?: "—"
+
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        label = "paramArrow",
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = param.title, style = MiuixTheme.textStyles.body1)
+                if (param.summary.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = param.summary,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = currentLabel,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = MiuixIcons.ChevronForward,
+                contentDescription = if (expanded) "收起${param.title}" else "展开${param.title}",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = arrowRotation },
+            )
+        }
+
+        if (expanded) {
+            Column(
+                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    param.options.forEach { option ->
-                        val selected = option.value == (values[param.key] ?: param.default)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                    else Color.Transparent
-                                )
-                                .clickable {
-                                    put(param.key, option.value)
-                                    openSelectKey = null
-                                }
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = option.label,
-                                style = MiuixTheme.textStyles.body2,
-                                color = if (selected) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
+                param.options.forEach { option ->
+                    val selected = option.value == value
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else Color.Transparent
                             )
-                            if (selected) {
-                                Text(
-                                    text = "✓",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.primary,
-                                )
+                            .clickable {
+                                value = option.value
+                                SettingsStore.setConfigInt(hookId, param.key, option.value)
                             }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = option.label,
+                            style = MiuixTheme.textStyles.body2,
+                            color = if (selected) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Text(
+                                text = "✓",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                            )
                         }
                     }
                 }
@@ -308,131 +304,50 @@ fun HookParamsScreen(hook: HookMeta) {
     }
 }
 
-/** 开关行：标题 + 说明在左，`Switch` 在右 */
+/** 数值参数行：标题 + 说明在左，−/＋ 步进器在右 */
 @Composable
-private fun ToggleRow(
-    param: HookParam.Toggle,
-    checked: Boolean,
-    enabled: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.4f)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ParamLabel(param)
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = if (enabled) onChange else null,
-        )
-    }
-}
-
-/** 下拉行：标题 + 说明在左，当前取值 + 箭头在右；点按弹出候选对话框 */
-@Composable
-private fun SelectRow(
-    param: HookParam.Select,
-    current: Int,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.4f)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ParamLabel(param)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = param.options.firstOrNull { it.value == current }?.label ?: "—",
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.width(4.dp))
-        Icon(
-            imageVector = MiuixIcons.ChevronForward,
-            contentDescription = "选择${param.title}",
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-}
-
-/** 滑条行：标题 + 说明 + 当前值在上，滑条在下 */
-@Composable
-private fun RangeRow(
+private fun RangeBlock(
+    hookId: String,
     param: HookParam.IntRange,
-    value: Int,
-    enabled: Boolean,
-    onChange: (Int) -> Unit,
+    resetSignal: Int,
 ) {
-    Column(
+    var value by remember(hookId, param.key, resetSignal) {
+        mutableStateOf(SettingsStore.getConfigInt(hookId, param.key, param.default))
+    }
+
+    fun update(next: Int) {
+        val clamped = next.coerceIn(param.min, param.max)
+        value = clamped
+        SettingsStore.setConfigInt(hookId, param.key, clamped)
+    }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.4f)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ParamLabel(param)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = formatRangeValue(param, value),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.primary,
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = param.title, style = MiuixTheme.textStyles.body1)
+            if (param.summary.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = param.summary,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
         }
-        Spacer(Modifier.height(4.dp))
-        Slider(
-            value = (value - param.min).toFloat(),
-            onValueChange = { if (enabled) onChange(snap(param, it)) },
-            valueRange = 0f..(param.max - param.min).toFloat(),
-            steps = stepsOf(param),
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
 
-/** 行左侧的标题 + 说明（须在 Row 内调用，靠 [RowScope] 撑满剩余宽度） */
-@Composable
-private fun RowScope.ParamLabel(param: HookParam) {
-    Column(modifier = Modifier.weight(1f)) {
-        Text(text = param.title, style = MiuixTheme.textStyles.body1)
-        if (param.summary.isNotEmpty()) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = param.summary,
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+        TextButton(text = "−", onClick = { update(value - param.step) })
+        Box(
+            modifier = Modifier.width(56.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = "$value", style = MiuixTheme.textStyles.body2)
         }
+        TextButton(text = "＋", onClick = { update(value + param.step) })
     }
-}
-
-/** 把滑条的浮点位置吸附到 [HookParam.IntRange.step] 的整数刻度上 */
-private fun snap(param: HookParam.IntRange, raw: Float): Int {
-    if (param.step <= 0) return param.min
-    val offset = (raw / param.step).roundToInt() * param.step
-    return (param.min + offset).coerceIn(param.min, param.max)
-}
-
-/** Compose `Slider` 的 steps 语义是「两端点之间的刻度数」，比区间数少 1 */
-private fun stepsOf(param: HookParam.IntRange): Int {
-    val span = param.max - param.min
-    if (param.step <= 0 || span <= 0) return 0
-    return ((span / param.step) - 1).coerceAtLeast(0)
-}
-
-/** 当前值文案；区间跨 0 时正数带 `+` 号，避免「上下偏移 4」看不出方向 */
-private fun formatRangeValue(param: HookParam.IntRange, value: Int): String {
-    val sign = if (param.min < 0 && value > 0) "+" else ""
-    return "$sign$value${param.unit}"
 }
 
 private fun toast(context: android.content.Context, message: String) {

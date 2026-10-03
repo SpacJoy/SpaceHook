@@ -566,7 +566,6 @@ private fun HookParamsDialog(hook: HookMeta, onDismiss: () -> Unit) {
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             simpleParams.forEach { param ->
                 when (param) {
-                    is HookParam.Toggle -> ToggleParamRow(hook.id, param)
                     is HookParam.Select -> SelectParamRow(hook.id, param)
                     is HookParam.IntRange -> RangeParamRow(hook.id, param)
                     is HookParam.MultiSelect -> MultiSelectParamRow(hook.id, param)
@@ -588,41 +587,6 @@ private fun HookParamsDialog(hook: HookMeta, onDismiss: () -> Unit) {
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
-    }
-}
-
-/** 开关型参数行：标题 + 说明在左，`Switch` 在右（取值 0/1 存 Int） */
-@Composable
-private fun ToggleParamRow(hookId: String, param: HookParam.Toggle) {
-    var value by remember(hookId, param.key) {
-        mutableStateOf(SettingsStore.getConfigInt(hookId, param.key, param.default))
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = param.title, style = MiuixTheme.textStyles.body1)
-            if (param.summary.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = param.summary,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = value != 0,
-            onCheckedChange = {
-                value = if (it) 1 else 0
-                SettingsStore.setConfigInt(hookId, param.key, value)
-            },
-        )
     }
 }
 
