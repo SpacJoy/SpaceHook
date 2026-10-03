@@ -17,24 +17,57 @@ import java.lang.ref.WeakReference
  */
 internal object StatusBarMeterState {
 
-    /** 一个显示贡献者：负责渲染自己那段文本 */
+    /**
+     * 一个显示贡献者：负责渲染自己那段文本。
+     *
+     * 除 [order] / [layout] / [render] 外全部给了默认值——**排布与样式只由
+     * [primary] 那个贡献者说了算**，另一方的样式字段会被忽略，所以次要的
+     * 一方不必实现它们。
+     */
     interface Contributor {
         /** 排序权重，小的排前面（功耗仪表 0、实时网速 10） */
         val order: Int
 
         /** 单行 [LAYOUT_SINGLE] / 双行 [LAYOUT_DUAL] */
-        val layout: Int
+        val layout: Int get() = LAYOUT_DUAL
 
-        val bold: Boolean
-        val fontSizeSp: Int
-        val refreshMs: Int
+        val bold: Boolean get() = false
 
-        /** 渲染自己那段文本（可以多段，例如仪表的一个槽位一段）；空列表 = 本次无数据 */
+        /** 0 = 跟随系统原生字号 */
+        val fontSizeSp: Int get() = 0
+
+        /** [FONT_DEFAULT] / [FONT_LIGHT] / [FONT_BOLD] */
+        val fontStyle: Int get() = FONT_DEFAULT
+
+        /** [ALIGN_NATIVE] / [ALIGN_LEFT] / [ALIGN_CENTER] / [ALIGN_RIGHT] */
+        val align: Int get() = ALIGN_NATIVE
+
+        /** 0 = 不固定宽度 */
+        val fixedWidthDp: Int get() = 0
+
+        val leftMarginDp: Int get() = 0
+        val rightMarginDp: Int get() = 0
+
+        /** 负值上移、正值下移 */
+        val verticalOffsetDp: Int get() = 0
+
+        val refreshMs: Int get() = 1000
+
+        /** 渲染自己那段文本（可以多段，例如仪表的一个槽位一段）；空列表 = 本次无内容 */
         fun render(reader: MeterReader): List<String>
     }
 
     const val LAYOUT_SINGLE = 0
     const val LAYOUT_DUAL = 1
+
+    const val FONT_DEFAULT = 0
+    const val FONT_LIGHT = 1
+    const val FONT_BOLD = 2
+
+    const val ALIGN_NATIVE = 1
+    const val ALIGN_LEFT = 2
+    const val ALIGN_CENTER = 3
+    const val ALIGN_RIGHT = 4
 
     private val contributors = LinkedHashMap<String, Contributor>()
 
@@ -90,9 +123,11 @@ internal object StatusBarMeterState {
             } catch (_: Throwable) {
                 emptyList()
             }
-            for (part in rendered) if (part.isNotEmpty()) parts.add(part)
+            parts.addAll(rendered)
         }
-        if (parts.isEmpty()) return null
+        // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
+        // 这时要写空串把原生内容顶掉，而不是交还原生。
+        if (parts.isEmpty()) return "" to ""
         return if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
             parts[0] to parts.drop(1).joinToString(" ")
         } else {

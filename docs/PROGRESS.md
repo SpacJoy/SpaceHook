@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（网速拆分为独立 Hook `status_bar_speed`；修复 CPU 温度恒 95℃）
+> 最后更新：2026-10-04（两个参数页按 HyperCeiler 形态重构：`HookParam` 新增 `Toggle` / `group` / `dependsOn` / `unit`）
 
 ---
 
@@ -24,9 +24,10 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
-| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修 |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修。参数页仿 HyperCeiler「电池信息」页（3 组 17 项） |
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
-| 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并 |
+| 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页仿 HyperCeiler 网速页（2 组 17 项） |
+| 19 | 参数页形态重构（仿 HyperCeiler） | ✅ 完成 | `HookParam` 新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位）；`HookParamsScreen` 整屏页重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证：`分发完成：成功 6 / 共 6`，无任何回调异常 |
 
 ---
 
@@ -344,6 +345,43 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（两个参数页按 HyperCeiler 形态重构：`HookParam` 扩展 + `HookParamsScreen` 重写）
+
+**需求**（用户原话）：
+> 1.状态栏功耗/温度仪表 页面参考HyperCeiler 的电池信息页面重构
+> 2.状态栏实时网速 页面参考HyperCeiler 的页面重构
+
+**勘察**：HyperCeiler 的功能设置页不是手写界面，而是 `library/core/src/main/res/xml/*.xml` 里的
+`PreferenceScreen`（约 130 个）。对应两页分别是 `system_ui_status_bar_battery_detail.xml`（电池信息，163 行）
+与 `system_ui_status_bar_network_speed_indicator.xml`（网速，187 行）；两页根节点都带
+`app:quick_restart="com.android.systemui"`。页内结构 = `PreferenceScreen` → `PreferenceCategory`
+（可带 `android:title` 分组标题、`android:dependency` 依赖某开关）→ `SwitchPreference` /
+`DropDownPreference` / `SeekBarPreferenceCompat` 三类控件。
+
+**参数模型扩展**（`common/src/main/java/top/spacejoy/spacehook/common/HookParam.kt`）：
+`sealed interface HookParam` 新增 `group`（分组标题）与 `dependsOn`（依赖键）两个带默认实现的成员
+（故原有调用点无需改动）；新增 `data class Toggle`（开关，取值 0/1 存 Int）；`IntRange` 新增 `unit`
+（显示后缀，如 `" dp"` / `" ms"` / `" KB/s"`）。
+
+**UI 重写**（`app/src/main/java/top/spacejoy/spacehook/ui/screens/HookParamsScreen.kt`）：
+整屏页改为三层结构 —— 总开关卡（标题 + 描述 + `Switch`）→ 按 `group` 分组的参数卡 →
+底部「恢复默认 / 重启生效」。行渲染按参数类型分派：`Toggle` → 开关行、`Select` → 下拉行
+（点按弹 `OverlayDialog` 选项列表）、`IntRange` → 滑条行（`Slider` + 实时值文案，含负值 `+` 号与
+单位后缀）。`dependsOn` 指向的开关为关时该行置灰不可点。`HookListScreen.kt` 补 `Toggle` 分支。
+
+**两个页面落地**：`status_bar_meter` 3 组 17 项（显示内容 / 显示设置 / 刷新）、
+`status_bar_speed` 2 组 17 项（显示样式 / 刷新）。
+
+**hook 层跟进**：`StatusBarMeterState.Contributor` 扩展为 12 个成员（除 `order` / `render` 外全部给默认
+实现）；`MeterReader` 网速改为收发分开差分（`NetSpeed(rx, tx)`）并新增 `isCharging()`；
+`StatusBarMeterHookBase.applyStyle()` 扩展到字号 / 字重 / 对齐 / 最小宽度 / 左右边距 / 垂直偏移
+（**除字号外一律「0 = 不干预」**，避免默认值抹掉原生边距）；`compose()` 语义微调 —— 「有贡献者但
+都没内容」改为写空串顶掉原生内容，只有视图未就绪才交还原生。
+
+**验证**：`BUILD SUCCESSFUL`；装机后单次重启 SystemUI，LSPosed 持久日志显示两个 Hook 均
+`Hook 装载成功`、`分发完成：成功 6 / 共 6`，且**无任何 `replace 回调异常` / `仪表刷新异常` /
+`应用字体样式失败`**。
 
 ### 2026-10-04（网速拆分为独立 Hook `status_bar_speed`）
 

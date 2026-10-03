@@ -481,7 +481,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 |---|---|
 | 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt`（配置 + 贡献者）、`.../systemui/meter/StatusBarMeterHookBase.kt`（hook 点与视图，与 §10 共用）、`.../meter/StatusBarMeterState.kt`（合并渲染）、`.../meter/MeterReader.kt`（数据源） |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 4 个槽位 `Select`（功耗 / 电流 / CPU 温度 / 电池温度）+ 排布 `Select` + 小数位 / 单位 / 粗细 / 字号 / 刷新间隔 |
+| 参数 | 3 组共 17 项（见「参数页形态」）：4 槽位 `Select` + 显示设置 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`），形态同「控制中心卡片排序」 |
 | 默认 | **关闭**（`defaultEnabled = false`）；开启后默认 = 功耗 + 电池温度、双行排布 |
 
@@ -492,6 +492,33 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 > 网速已拆成独立的 `status_bar_speed`（见 §10）—— 两者共用同一个原生显示位，
 > 同时开启时按「仪表在前、网速在后」合并成单行 / 双行文本。
+
+### 参数页形态（仿 HyperCeiler「电池信息」页）
+
+页面分三层：**总开关独占一张卡** → 按 `HookParam.group` 分组的参数卡 → 底部「恢复默认 / 重启生效」。
+组内每行按参数类型渲染成开关行 / 下拉行 / 滑条行；`dependsOn` 指向的开关为关时该行置灰。
+
+| 分组 | 参数 | 类型 / 选项 | 默认 |
+|---|---|---|---|
+| （总开关） | — | `Switch` | 关 |
+| 显示内容 | `slot1` ~ `slot4` | `Select`：关闭 / 功耗 / 电流 / CPU 温度 / 电池温度 | 功耗 / 电池温度 / 关 / 关 |
+| 显示设置 | `single_row` | `Toggle` 单行显示 | 关（= 双行） |
+| | `reverse_order` | `Toggle` 反转顺序 | 关 |
+| | `in_charge` | `Toggle` 仅充电时显示 | 关 |
+| | `temp_decimal` | `Toggle` 温度保留小数 | 关 |
+| | `decimals` | `IntRange` 0 ~ 2 | 1 |
+| | `hide_unit` | `Select`：不隐藏 / 全部 / 仅温度 / 仅功耗与电流 | 不隐藏 |
+| | `bold` | `Toggle` 加粗 | 关 |
+| | `font_style` | `Select`：跟随系统 / 细体 / 粗体 | 跟随系统 |
+| | `font_size_sp` | `IntRange` 0 ~ 24 sp（0 = 跟随系统） | 0 |
+| | `align` | `Select`：保持原生 / 靠左 / 居中 / 靠右 | 保持原生 |
+| | `fixed_width` | `IntRange` 0 ~ 120 dp（0 = 不干预） | 0 |
+| | `left_margin` / `right_margin` | `IntRange` 0 ~ 16 dp（0 = 保持原生） | 0 |
+| | `vertical_offset` | `IntRange` −20 ~ 20 dp | 0 |
+| 刷新 | `refresh_ms` | `IntRange` 500 ~ 5000 ms | 1000 |
+
+**除字号外，样式类参数一律「0 或默认值 = 不干预」**——原生视图的宽度、边距由系统状态栏
+布局决定，参数没设就不该覆盖它（否则默认值会把原生边距抹成 0）。
 
 ### 为什么要「接管」而不是自己插布局
 
@@ -507,7 +534,7 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 | `NetworkSpeedController#-$$Nest$mupdateVisibility(Controller, String)` | 计算 `visible` 前把 `mShowNetworkSpeed` / `mNetworkConnected` 钉成 `true`（强制可见） |
 | `NetworkSpeedView#setNetworkSpeed(String, String)` | 视图写入路径：同样换成仪表文本 |
 | `NetworkSpeedView#onFinishInflate()` | 缓存视图引用、起定时刷新 |
-| `NetworkSpeedView#onDensityOrFontScaleChanged()` / `onMiuiThemeChanged(boolean)` | 系统重套文字外观后，重新套用字号 / 粗细 |
+| `NetworkSpeedView#onDensityOrFontScaleChanged()` / `onMiuiThemeChanged(boolean)` | 系统重套文字外观后，重新套用字号 / 字重 / 对齐 / 宽度 / 边距 / 垂直偏移 |
 
 ### 关键坑
 
@@ -557,14 +584,37 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 |---|---|
 | 实现类 | `libhook/.../rules/systemui/StatusBarSpeedHook.kt`（配置 + 贡献者）+ 共用 `meter/StatusBarMeterHookBase.kt`、`meter/StatusBarMeterState.kt`、`meter/MeterReader.kt` |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 小数位 / 单位 / 粗细 / 字号 / 刷新间隔（固定单行） |
+| 参数 | 2 组共 17 项（见「参数页形态」）：显示样式 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`） |
 | 默认 | **关闭**（`defaultEnabled = false`） |
 
 ### 功能语义
 
 显示实时网速：`TrafficStats` 收发总量差分 ÷ 间隔 → B/s，按 KB/s 显示，
-≥ 1024 KB/s 自动转 MB/s。
+≥ 1024 KB/s 自动转 MB/s。收发**分开差分**，「上下行」样式才能给出两个独立的值。
+
+### 参数页形态（仿 HyperCeiler 网速页）
+
+结构同 §9（总开关卡 + 分组参数卡 + 底部按钮）。
+
+| 分组 | 参数 | 类型 / 选项 | 默认 |
+|---|---|---|---|
+| （总开关） | — | `Switch` | 关 |
+| 显示样式 | `style` | `Select`：值和单位单行 / 值和单位双排 / 上下行单行 / 上下行双排 | 值和单位单行 |
+| | `swap_places` | `Toggle` 交换上下行 | 关 |
+| | `hide_unit` | `Toggle` 隐藏单位 | 关 |
+| | `hide` | `Toggle` 隐藏网速（低速时） | 关 |
+| | `hide_slow` | `IntRange` 1 ~ 2048 KB/s（`dependsOn = hide`） | 64 |
+| | `hide_all` | `Toggle` 全部隐藏 | 关 |
+| | `decimals` | `IntRange` 0 ~ 2 | 1 |
+| | `bold` | `Toggle` 加粗 | 关 |
+| | `font_style` | `Select`：跟随系统 / 细体 / 粗体 | 跟随系统 |
+| | `font_size_sp` | `IntRange` 0 ~ 24 sp（0 = 跟随系统） | 0 |
+| | `align` | `Select`：保持原生 / 靠左 / 居中 / 靠右 | 保持原生 |
+| | `fixed_width` | `IntRange` 0 ~ 120 dp（0 = 不干预） | 0 |
+| | `left_margin` / `right_margin` | `IntRange` 0 ~ 16 dp（0 = 保持原生） | 0 |
+| | `vertical_offset` | `IntRange` −20 ~ 20 dp | 0 |
+| 刷新 | `refresh_ms` | `IntRange` 500 ~ 5000 ms | 1000 |
 
 ### 为什么和 `status_bar_meter` 分成两个 Hook
 
@@ -577,11 +627,16 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 | `order` | 0（排在前） | 10（排在后） |
 | 渲染 | 4 槽位任选指标 | 单个网速值 |
 | 刷新间隔 | 自己配 | 自己配（实际取两者最小值） |
-| 字体样式 | 自己配 | 自己配（以 `order` 最小者为准） |
+| 样式（字重 / 对齐 / 宽度 / 边距 / 垂直偏移） | 自己配 | 自己配（**实际以 `order` 最小者为准**） |
+
+`Contributor` 接口除 `order` / `render` 外**全部有默认实现**，新加一个贡献者只需实现这两个成员。
+样式类参数的默认值都是「0 = 不干预」，避免默认值把原生视图的宽度 / 边距抹成 0。
 
 合并规则在 `StatusBarMeterState.compose()`：按 `order` 升序拼各贡献者的片段；
 双行 = 第一段进「数字」TextView、其余进「单位」TextView；单行 = 全部拼进数字框、
-单位框留空。两者都关 → 返回 `null`，文本链路 `chain.proceed()` 交还原生行为。
+单位框留空。**有贡献者但都没内容**（例如设了「仅充电时显示」而当前没插电、或网速低于
+隐藏阈值）→ 写空串把原生内容顶掉；只有视图尚未就绪（`reader == null`）才返回 `null`，
+交还原生行为。
 
 ### 关键坑
 

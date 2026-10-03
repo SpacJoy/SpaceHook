@@ -91,6 +91,13 @@ internal class MeterReader(private val context: Context) {
         return tenths / 10.0
     }
 
+    /** 是否正在充电（充电中 / 已充满） */
+    fun isCharging(): Boolean {
+        val status = battery()?.getIntExtra(BatteryManager.EXTRA_STATUS, Int.MIN_VALUE) ?: return false
+        return status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+    }
+
     // ==================== CPU 温度 ====================
 
     private var thermalGroups: List<List<String>>? = null
@@ -154,25 +161,52 @@ internal class MeterReader(private val context: Context) {
 
     // ==================== 网速 ====================
 
-    private var lastBytes = -1L
+    /** 一次采样：下行 / 上行（字节/秒） */
+    internal data class NetSpeed(val rx: Double, val tx: Double)
+
+    private var lastRx = -1L
+    private var lastTx = -1L
     private var lastAt = 0L
 
-    /** 实时网速（字节/秒），基于 TrafficStats 收发总量的差分 */
-    fun netSpeedBytesPerSec(): Double {
+    /**
+     * 实时网速（字节/秒），基于 TrafficStats 收发总量的差分。
+     *
+     * 收发分开差分——「上下行分排」样式需要两个独立的值；[netSpeedBytesPerSec]
+     * 只是两者之和，给合并显示的样式用。**同一次刷新里只调一次**：每次调用都会
+     * 推进采样基线，连着调第二次会得到 0。
+     */
+    fun netSpeed(): NetSpeed {
         val now = SystemClock.elapsedRealtime()
-        val total = try {
-            TrafficStats.getTotalRxBytes() + TrafficStats.getTotalTxBytes()
+        val rx = try {
+            TrafficStats.getTotalRxBytes()
         } catch (_: Throwable) {
             -1L
         }
-        val prevBytes = lastBytes
+        val tx = try {
+            TrafficStats.getTotalTxBytes()
+        } catch (_: Throwable) {
+            -1L
+        }
+        val prevRx = lastRx
+        val prevTx = lastTx
         val prevAt = lastAt
-        lastBytes = total
+        lastRx = rx
+        lastTx = tx
         lastAt = now
-        if (total < 0 || prevBytes < 0 || prevAt == 0L || now <= prevAt) return 0.0
-        val delta = total - prevBytes
-        if (delta <= 0) return 0.0
-        return delta * 1000.0 / (now - prevAt)
+        if (rx < 0 || tx < 0 || prevRx < 0 || prevTx < 0 || prevAt == 0L || now <= prevAt) {
+            return NetSpeed(0.0, 0.0)
+        }
+        val span = (now - prevAt).toDouble()
+        return NetSpeed(
+            rx = (rx - prevRx).coerceAtLeast(0L) * 1000.0 / span,
+            tx = (tx - prevTx).coerceAtLeast(0L) * 1000.0 / span,
+        )
+    }
+
+    /** 收发合计（字节/秒） */
+    fun netSpeedBytesPerSec(): Double {
+        val speed = netSpeed()
+        return speed.rx + speed.tx
     }
 
     internal companion object {

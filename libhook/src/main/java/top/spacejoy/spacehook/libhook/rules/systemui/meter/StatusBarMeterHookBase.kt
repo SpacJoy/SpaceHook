@@ -1,9 +1,12 @@
 package top.spacejoy.spacehook.libhook.rules.systemui.meter
 
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import top.spacejoy.spacehook.libhook.base.BaseHook
 import java.lang.ref.WeakReference
@@ -40,9 +43,11 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
     private var handler: Handler? = null
 
-    /** 原生默认字号（px），用于「字号 = 跟随系统」时还原 */
+    /** 原生默认字号（px）与字体，用于「字号 / 字重 = 跟随系统」时还原 */
     private var numberDefaultPx = 0f
     private var unitDefaultPx = 0f
+    private var numberDefaultTypeface: Typeface? = null
+    private var unitDefaultTypeface: Typeface? = null
 
     private val tick = object : Runnable {
         override fun run() {
@@ -167,7 +172,13 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         h.post(tick)
     }
 
-    /** 字号 / 粗细；系统更新文字外观（字体缩放、主题切换）后重新套一遍 */
+    /**
+     * 字号 / 字重 / 对齐 / 固定宽度 / 边距 / 垂直偏移。
+     *
+     * 除字号外**全部以「0 或默认值 = 不干预」为准**——原生视图的边距、宽度是系统
+     * 状态栏布局给的，参数没设就不该去覆盖它。
+     * 系统更新文字外观（字体缩放、主题切换）后由 [STYLE_REFRESH_METHODS] 重新套一遍。
+     */
     private fun applyStyle(target: Any?) {
         val view = target as? View ?: return
         try {
@@ -175,8 +186,13 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
             if (numberDefaultPx <= 0f) numberDefaultPx = number.textSize
             if (unitDefaultPx <= 0f) unitDefaultPx = unit.textSize
+            if (numberDefaultTypeface == null) numberDefaultTypeface = number.typeface
+            if (unitDefaultTypeface == null) unitDefaultTypeface = unit.typeface
 
-            val sp = StatusBarMeterState.primary()?.fontSizeSp ?: 0
+            val primary = StatusBarMeterState.primary()
+
+            // 字号：0 = 跟随系统（还原首次记下的原生 px）
+            val sp = primary?.fontSizeSp ?: 0
             if (sp > 0) {
                 number.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp.toFloat())
                 unit.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp.toFloat())
@@ -185,13 +201,67 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                 unit.setTextSize(TypedValue.COMPLEX_UNIT_PX, unitDefaultPx)
             }
 
-            val bold = StatusBarMeterState.primary()?.bold ?: false
-            number.paint.isFakeBoldText = bold
-            unit.paint.isFakeBoldText = bold
+            // 字重：细体 / 粗体 / 跟随系统
+            val style = primary?.fontStyle ?: StatusBarMeterState.FONT_DEFAULT
+            val bold = primary?.bold == true || style == StatusBarMeterState.FONT_BOLD
+            applyTypeface(number, numberDefaultTypeface, style, bold)
+            applyTypeface(unit, unitDefaultTypeface, style, bold)
+
+            // 水平对齐：1 = 保持原生（不碰 gravity）
+            when (primary?.align ?: StatusBarMeterState.ALIGN_NATIVE) {
+                StatusBarMeterState.ALIGN_LEFT -> {
+                    number.gravity = Gravity.START
+                    unit.gravity = Gravity.START
+                }
+
+                StatusBarMeterState.ALIGN_CENTER -> {
+                    number.gravity = Gravity.CENTER
+                    unit.gravity = Gravity.CENTER
+                }
+
+                StatusBarMeterState.ALIGN_RIGHT -> {
+                    number.gravity = Gravity.END
+                    unit.gravity = Gravity.END
+                }
+
+                else -> Unit
+            }
+
+            // 固定宽度（0 = 不干预）
+            val widthDp = primary?.fixedWidthDp ?: 0
+            if (widthDp > 0) view.minimumWidth = view.dp(widthDp)
+
+            // 左右边距（0 = 保持原生）
+            val leftDp = primary?.leftMarginDp ?: 0
+            val rightDp = primary?.rightMarginDp ?: 0
+            if (leftDp > 0 || rightDp > 0) {
+                (view.layoutParams as? ViewGroup.MarginLayoutParams)?.let { params ->
+                    if (leftDp > 0) params.leftMargin = view.dp(leftDp)
+                    if (rightDp > 0) params.rightMargin = view.dp(rightDp)
+                    view.layoutParams = params
+                }
+            }
+
+            // 垂直偏移：参数为「正值下移」，translationY 正方向向下，故取负
+            view.translationY = -view.dp(primary?.verticalOffsetDp ?: 0).toFloat()
         } catch (t: Throwable) {
             logw("应用字体样式失败：${t.message}")
         }
     }
+
+    /** 细体走 `sans-serif-light`，粗体在原生字体上加粗，其余还原首次记下的原生字体 */
+    private fun applyTypeface(text: TextView, fallback: Typeface?, style: Int, bold: Boolean) {
+        val light = style == StatusBarMeterState.FONT_LIGHT
+        text.typeface = when {
+            light -> Typeface.create("sans-serif-light", Typeface.NORMAL)
+            bold -> Typeface.create(fallback, Typeface.BOLD)
+            else -> fallback
+        }
+        text.paint.isFakeBoldText = bold && !light
+    }
+
+    private fun View.dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private companion object {
 
