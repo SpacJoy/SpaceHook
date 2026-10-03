@@ -7,9 +7,11 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewParent
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import top.spacejoy.spacehook.libhook.base.BaseHook
-import java.lang.ref.WeakReference
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
@@ -31,7 +33,8 @@ import java.lang.reflect.Modifier
  *
  * ## 自己的刷新节奏
  * 原生只在网速变化时推送，功耗/温度会「冻住」，所以另起一个主线程 Handler 定时直接
- * 往视图写文本（刷新间隔可配）。
+ * 往视图写文本（刷新间隔可配）。一次刷新只组装一次文本、写进**所有**承载视图
+ * ——原生 `NetworkSpeedView` 有多个实例，只记一个会让其余实例冻在旧文本上。
  *
  * 子类只需实现 [createContributor]，提供自己那段文本；hook 点由这里统一安装一次
  * （见 [StatusBarMeterState.claimInstaller]）。
@@ -43,6 +46,20 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
     private var handler: Handler? = null
 
+    /** 诊断输出剩余条数（排查完置 0 即可静音） */
+    private var diagLeft = 20
+
+    /** 写入回读诊断剩余条数 */
+    private var writeDiagLeft = 12
+
+    /** 可见性桥诊断剩余条数 */
+    private var bridgeDiagLeft = 8
+
+    private val dumpedViews = HashSet<Int>()
+
+    /** 视图来源链只打印一次 */
+    private val chainDumped = HashSet<Int>()
+
     /** 原生默认字号（px）与字体，用于「字号 / 字重 = 跟随系统」时还原 */
     private var numberDefaultPx = 0f
     private var unitDefaultPx = 0f
@@ -52,19 +69,17 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     private val tick = object : Runnable {
         override fun run() {
             val h = handler ?: return
-            val view = StatusBarMeterState.viewRef?.get()
-            if (view == null) {
+            val views = StatusBarMeterState.liveViews()
+            if (views.isEmpty()) {
                 // 状态栏被重建，等新视图回调 onFinishInflate 再启动
                 handler = null
                 return
             }
             try {
                 if (StatusBarMeterState.active) {
-                    callMethod(view, "setVisibilityByController", true)
-                    callMethod(view, "setBlocked", false)
-                    StatusBarMeterState.compose()?.let {
-                        callMethod(view, "setNetworkSpeed", it.first, it.second)
-                    }
+                    // 一次刷新只组装一次：网速是差分采样，组装两遍会白白推进一次基线
+                    val text = StatusBarMeterState.compose()
+                    if (text != null) for (view in views) writeText(view, text)
                 }
             } catch (t: Throwable) {
                 loge("仪表刷新异常", t)
@@ -77,8 +92,18 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
     final override fun onHook() {
         StatusBarMeterState.register(id, createContributor())
+        StatusBarMeterState.onCompose = { parts, result ->
+            if (diagLeft > 0) {
+                diagLeft--
+                logd("组装诊断: 片段$parts → 数字框[${result.first}] 单位框[${result.second}]")
+            }
+        }
         if (StatusBarMeterState.claimInstaller()) installHooks()
-        logd("已挂载：与同位置的其它仪表合并显示，刷新 ${StatusBarMeterState.refreshMs()}ms")
+        logd(
+            "已挂载：与同位置的其它仪表合并显示，刷新 ${StatusBarMeterState.refreshMs()}ms" +
+                " 状态实例=${System.identityHashCode(StatusBarMeterState)}" +
+                " 类装载器=${javaClass.classLoader?.let { System.identityHashCode(it) }}",
+        )
     }
 
     private fun installHooks() {
@@ -109,6 +134,10 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         hookExecutable(bridge) { chain ->
             if (StatusBarMeterState.active) {
                 val controller = chain.args.getOrNull(0)
+                if (bridgeDiagLeft > 0) {
+                    bridgeDiagLeft--
+                    logd("可见性桥: 控制器=#${controller?.let { System.identityHashCode(it) }}")
+                }
                 setBooleanField(controller, FIELD_SHOW_NETWORK_SPEED, true)
                 setBooleanField(controller, FIELD_NETWORK_CONNECTED, true)
             }
@@ -144,6 +173,13 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         }
 
         replace(clazz, "setNetworkSpeed", arrayOf(String::class.java, String::class.java)) { chain ->
+            // 原生往哪个视图推文本，就把哪个视图补进登记表。
+            // 状态栏那个实例通常在模块加载之前就 inflate 完了，onFinishInflate 拦不到它，
+            // 只有这里能兜住——否则它会一直冻在旧文本上，而且永远不会被定时器刷新。
+            (chain.thisObject as? View)?.let {
+                StatusBarMeterState.addView(it)
+                dumpChain(it)
+            }
             val text = StatusBarMeterState.compose()
             if (text == null) chain.proceed()
             else chain.proceed(arrayOf<Any?>(text.first, text.second))
@@ -159,10 +195,38 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     }
 
     private fun onViewReady(view: View) {
-        StatusBarMeterState.viewRef = WeakReference(view)
+        StatusBarMeterState.addView(view)
         if (StatusBarMeterState.reader == null) StatusBarMeterState.reader = MeterReader(view.context)
         applyStyle(view)
+        dumpView(view)
+        dumpChain(view)
         startTicker()
+    }
+
+    /**
+     * 视图来源链（每个视图一次）。
+     *
+     * 屏幕上出现过**两块并排的仪表**，而登记表里有 8 个视图、父容器都叫
+     * `MiuiStatusIconContainer`——只看父类名分不清哪个在状态栏、哪个在息屏 / 下拉栏 /
+     * 锁屏。往上打 6 层容器名 + id，再带上 `isShown`，就能定位重复来自哪一支。
+     */
+    private fun dumpChain(view: View) {
+        if (!chainDumped.add(System.identityHashCode(view))) return
+        try {
+            val sb = StringBuilder("视图来源: #").append(System.identityHashCode(view))
+            sb.append(" 附着=").append(view.isAttachedToWindow).append(" 显示=").append(view.isShown)
+            var node: ViewParent? = view.parent
+            var depth = 0
+            while (node != null && depth < 6) {
+                sb.append(" ← ").append(node.javaClass.simpleName)
+                if (node is View) sb.append("(").append(resId(node)).append(")")
+                node = node.parent
+                depth++
+            }
+            logd(sb.toString())
+        } catch (t: Throwable) {
+            logw("视图来源诊断失败：${t.message}")
+        }
     }
 
     private fun startTicker() {
@@ -170,6 +234,35 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         val h = Handler(Looper.getMainLooper())
         handler = h
         h.post(tick)
+    }
+
+    /**
+     * 直接写两个文本框。
+     *
+     * **不走原生 `setNetworkSpeed`**：那条路开头就有 `if (!mVisibleByController || mBlocked) return`，
+     * 视图没被原生判为可见时写入会被静默吞掉（`callMethod` 连异常都吞，日志里什么都不留）。
+     * 定时器自己写文本没有这层守卫，也不受原生推送节奏影响。
+     */
+    private fun writeText(view: View, text: Pair<String, String>) {
+        val number = getField(view, FIELD_NUMBER_TEXT) as? TextView
+        val unit = getField(view, FIELD_UNIT_TEXT) as? TextView
+        if (number == null || unit == null) {
+            if (writeDiagLeft > 0) {
+                writeDiagLeft--
+                logw("写入失败: id=${resId(view)} 数字框=${number != null} 单位框=${unit != null}")
+            }
+            return
+        }
+        number.text = text.first
+        unit.text = text.second
+        if (writeDiagLeft > 0) {
+            writeDiagLeft--
+            logd(
+                "写入回读: #${System.identityHashCode(view)} id=${resId(view)} vis=${view.visibility}" +
+                    " 父=${view.parent?.javaClass?.simpleName}" +
+                    " 数字框[${number.text}] 单位框[${unit.text}]",
+            )
+        }
     }
 
     /**
@@ -244,10 +337,66 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
             // 垂直偏移：参数为「正值下移」，translationY 正方向向下，故取负
             view.translationY = -view.dp(primary?.verticalOffsetDp ?: 0).toFloat()
+
+            // 单行 / 双行的实际排布
+            applyLayout(view, primary?.layout == StatusBarMeterState.LAYOUT_DUAL)
         } catch (t: Throwable) {
             logw("应用字体样式失败：${t.message}")
         }
     }
+
+    /**
+     * 排布。
+     *
+     * 原生本来就是**两行**：`updateResources$15()` 把数字框上移 4.6dp、单位框下移 3.8dp，
+     * 两个文本框各自居中叠在同一个 `FrameLayout` 里，靠这 8.4dp 的错位分成上下两行
+     * （字号 7.0dp / 6.4dp，半高之和 6.7dp < 8.4dp，正好不重叠）。
+     *
+     * 上一版这里把错位归零、又给两个框设 TOP / BOTTOM gravity —— 但容器是 `wrap_content`
+     * 高（只有一行高），TOP 和 BOTTOM 是同一个位置，结果两行叠死，只剩上面那个可见。
+     * 所以**双行什么都不用做**，保持原生错位即可；单行才要把错位归零让文本居中。
+     */
+    private fun applyLayout(view: View, dual: Boolean) {
+        if (dual) return
+        val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
+        val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
+        if (number.translationY != 0f) number.translationY = 0f
+        if (unit.translationY != 0f) unit.translationY = 0f
+    }
+
+    /** 一次性视图结构诊断：搞清原生到底怎么摆这两个文本框、一共几个实例 */
+    private fun dumpView(view: View) {
+        if (!dumpedViews.add(System.identityHashCode(view))) return
+        try {
+            val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
+            val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
+            val parent = number.parent
+            val sb = StringBuilder()
+            sb.append("视图诊断: 视图=").append(view.javaClass.simpleName)
+                .append(" id=").append(resId(view))
+                .append(" 父容器=").append(parent?.javaClass?.simpleName)
+            if (parent is LinearLayout) sb.append("(orientation=").append(parent.orientation).append(")")
+            sb.append(" 数字框[").append(number.text).append("] size=").append(number.textSize)
+                .append(" ty=").append(number.translationY)
+                .append(" lp=").append(gravityOf(number))
+            sb.append(" 单位框[").append(unit.text).append("] size=").append(unit.textSize)
+                .append(" ty=").append(unit.translationY)
+                .append(" lp=").append(gravityOf(unit))
+            sb.append(" 视图总数=").append(StatusBarMeterState.liveViews().size)
+            logd(sb.toString())
+        } catch (t: Throwable) {
+            logw("视图诊断失败：${t.message}")
+        }
+    }
+
+    private fun resId(view: View): String = try {
+        if (view.id == View.NO_ID) "-" else view.resources.getResourceEntryName(view.id)
+    } catch (_: Throwable) {
+        "?"
+    }
+
+    private fun gravityOf(child: View): Int =
+        (child.layoutParams as? FrameLayout.LayoutParams)?.gravity ?: -1
 
     /** 细体走 `sans-serif-light`，粗体在原生字体上加粗，其余还原首次记下的原生字体 */
     private fun applyTypeface(text: TextView, fallback: Typeface?, style: Int, bold: Boolean) {

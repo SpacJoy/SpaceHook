@@ -168,6 +168,10 @@ internal class MeterReader(private val context: Context) {
     private var lastTx = -1L
     private var lastAt = 0L
 
+    /** 同一帧内的重复调用直接复用上次结果，避免二次采样把间隔压平（网速恒 0） */
+    private var cachedSpeed: NetSpeed? = null
+    private var cachedAt = 0L
+
     /**
      * 实时网速（字节/秒），基于 TrafficStats 收发总量的差分。
      *
@@ -177,6 +181,9 @@ internal class MeterReader(private val context: Context) {
      */
     fun netSpeed(): NetSpeed {
         val now = SystemClock.elapsedRealtime()
+        // 一次刷新里 compose() 可能被调多次（原生推送一次 + 定时器一次），
+        // 每次都重新差分会把采样间隔压成 0，网速就永远是 0.0KB/s
+        cachedSpeed?.let { if (now - cachedAt < SPEED_CACHE_MS) return it }
         val rx = try {
             TrafficStats.getTotalRxBytes()
         } catch (_: Throwable) {
@@ -194,13 +201,19 @@ internal class MeterReader(private val context: Context) {
         lastTx = tx
         lastAt = now
         if (rx < 0 || tx < 0 || prevRx < 0 || prevTx < 0 || prevAt == 0L || now <= prevAt) {
-            return NetSpeed(0.0, 0.0)
+            val zero = NetSpeed(0.0, 0.0)
+            cachedSpeed = zero
+            cachedAt = now
+            return zero
         }
         val span = (now - prevAt).toDouble()
-        return NetSpeed(
+        val result = NetSpeed(
             rx = (rx - prevRx).coerceAtLeast(0L) * 1000.0 / span,
             tx = (tx - prevTx).coerceAtLeast(0L) * 1000.0 / span,
         )
+        cachedSpeed = result
+        cachedAt = now
+        return result
     }
 
     /** 收发合计（字节/秒） */
@@ -213,6 +226,9 @@ internal class MeterReader(private val context: Context) {
 
         private const val POWER_SUPPLY_ROOT = "/sys/class/power_supply"
         private const val THERMAL_ROOT = "/sys/class/thermal"
+
+        /** 同一帧内网速结果的复用窗口 */
+        private const val SPEED_CACHE_MS = 200L
 
         /** current_now 常见挂载点 */
         private val POWER_SUPPLY_DIRS = arrayOf("battery", "bms", "Battery", "BATTERY", "battery2")

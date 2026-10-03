@@ -74,11 +74,34 @@ internal object StatusBarMeterState {
     @Volatile
     private var installed = false
 
-    @Volatile
-    internal var viewRef: WeakReference<View>? = null
+    /**
+     * 承载视图。原生网速视图**不止一个实例**（状态栏一处，系统别处也会 inflate），
+     * 只记一个的话其余实例会冻在旧文本上——所以全部登记、全部刷新。
+     */
+    private val views = ArrayList<WeakReference<View>>()
 
     @Volatile
     internal var reader: MeterReader? = null
+
+    /** 诊断回调：组装结果发生变化时触发一次 */
+    @Volatile
+    var onCompose: ((List<String>, Pair<String, String>) -> Unit)? = null
+
+    private var lastComposed: Pair<String, String>? = null
+
+    /** 登记一个承载视图 */
+    @Synchronized
+    fun addView(view: View) {
+        views.removeAll { it.get() == null }
+        if (views.none { it.get() === view }) views.add(WeakReference(view))
+    }
+
+    /** 当前存活的承载视图（顺带清掉已被回收的） */
+    @Synchronized
+    fun liveViews(): List<View> {
+        views.removeAll { it.get() == null }
+        return views.mapNotNull { it.get() }
+    }
 
     /**
      * 抢占安装权：hook 点只能装一次，两个 Hook 里谁先跑到谁装。
@@ -128,11 +151,19 @@ internal object StatusBarMeterState {
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        return if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
-            parts[0] to parts.drop(1).joinToString(" ")
+        // 双行：片段对半分成两行（2 项 → 1+1，4 项 → 2+2）；
+        // 单行：全部挤进「数字」框，单位框留空。
+        val result = if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
+            val half = (parts.size + 1) / 2
+            parts.take(half).joinToString(" ") to parts.drop(half).joinToString(" ")
         } else {
             parts.joinToString(" ") to ""
         }
+        if (result != lastComposed) {
+            lastComposed = result
+            onCompose?.invoke(parts, result)
+        }
+        return result
     }
 
     private const val DEFAULT_REFRESH_MS = 1000
