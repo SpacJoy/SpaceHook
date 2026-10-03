@@ -1,7 +1,9 @@
-# Hook 功能清单与 hook 点定位表
+﻿# Hook 功能清单与 hook 点定位表
 
-> **复核状态**：4 个 Hook 的 hook 点已全部用 **jadx 1.5.6 实机反编译**验证（2026-09-26）。
-> 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译。
+> **复核状态**：8 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-03）。
+> 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译
+> （jadx-ai-mcp 插件已弃用；jadx-GUI 不再打开，all.jar 仅 CLI 模式）；
+> 抖音（55 个 dex）改用 `dexdump`（build-tools 36.1.0）按 class_defs 逐类验证。
 
 ---
 
@@ -13,6 +15,10 @@
 | `device_center_size` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ **4/4 hook 点全部正确** |
 | `disable_list_autoplay` | 录音机 8.1.5-779121d13 | 5,385 类 | ⚠️→✅ **1 处已失效并修正**（`o1` → `q1`） |
 | `installer_redirect` | Android Framework API | 无需反编译 | ✅ 均为稳定公开 API |
+| `douyin_nocrop` | 抖音 40.6.0（400601） | 55 个 dex | ✅ **5/5 hook 点全部正确** |
+| `adb_stay_awake` | AOSP Framework（system_server） | 无需反编译 | ✅ 移植自 AdbStayAwake（libxposed API 102 同源） |
+| `cc_card_order` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSControlCenterList`，8 个控制器 `getPriority` |
+| `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
 
 ---
 
@@ -266,7 +272,208 @@ val PLAYBACK_ENTRY_CANDIDATES = listOf("q1", "o1", "p1", "startPlayback")
 
 ---
 
-## 5. 新增 Hook 的模板
+## 5. douyin_nocrop —— 抖音不裁剪 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/douyin/DouYinNoCropHook.kt`（+ `NoCropReflect` / `NoCropVideoAspect` / `NoCropFitApplier`） |
+| 移植来源 | `D:/Code/Android/APK/Hook/douyinnocrop-v1.1.0.apk`（io.github.dunxuan.douyinnocrop，libxposed API 102） |
+| 目标 APK | `D:/Code/Android/APK/Hook/抖音.apk`（40.6.0 / versionCode 400601，55 个 dex） |
+| 目标进程 | `com.ss.android.ugc.aweme` |
+| 复核结论 | **5/5 hook 点全部正确**，无需改名 |
+
+### 功能语义
+
+Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏容器），不再裁剪填充 9:16。
+播放器回报真实尺寸后会以真实宽高比重算；净屏模式、详情页切换后自动 refit。
+
+### hook 点（抖音 40.6.0 dexdump 实测）
+
+| # | 目标 | 实测位置 | 结论 |
+|---|---|---|---|
+| 1 | `VideoItemParams#getAweme()` | `classes29.dex` | ✅ 未混淆；字段 `mAweme`、`mBaseFeedPlayerView` 均在 |
+| 2 | `KeepSurfaceTextureView#onAttachedToWindow()` | `classes55.dex` | ✅ |
+| 3 | `FeedImageViewHolder#bind(Aweme)` / `bind(Aweme,int)`（含 Full/Detail 子类） | `classes29.dex`（Full 同 dex，Detail 在 `classes19.dex`） | ✅ bind 在父类，`DetailFeedImageViewHolder extends FeedImageViewHolder` |
+| 4 | `CleanModeViewModel#sA(CleanModeCommand,String,boolean)` | `classes29.dex` | ✅ 混淆名 `sA` 未变；实现按**参数签名**查找，抗改名 |
+| 5 | `VideoPatchLayout#onVideoSizeChanged(VideoStateInquirer,PlayEntity,int,int)` | `classes47.dex` | ✅ 4 参签名不变 |
+
+### 相关数据类（已验证）
+
+| 类 | 位置 | 结论 |
+|---|---|---|
+| `Aweme` | `classes16.dex` | `getAid()` / `getVideo()` 未混淆；字段 `imageInfos`、`images : List` ✅ |
+| `Video`（`getVideo()` 返回类型） | — | 尺寸字段 `width`/`height`（混淆别名 `t`/`s`）+ `aspectRatio`（宽松反射读取） |
+| `RemoteImageView` | `classes23.dex` | 自身无实例字段，`mDraweeHolder` 在父类（Fresco `GenericDraweeView`） |
+| `ScalingUtils$ScaleType` | `classes20.dex` | `FIT_CENTER` 常量 ✅ |
+| `PlayEntity` / `VideoStateInquirer` | `classes47.dex` / `classes11.dex` | 仅作签名参数类型 |
+
+### 与原实现的差异（修正 2 个 bug）
+
+| # | 原 douyinnocrop | 问题 | 本实现 |
+|---|---|---|---|
+| 1 | `final float f = i / i2;` | **int 除法**：竖屏视频得 0 被 sanity 区间拦掉、横屏精度截断 | `w.toFloat() / h.toFloat()` 浮点除法 |
+| 2 | 宽高对换 `i = i2; i2 = i;` | 顺序写错，**两个都变成 height** | 不做对换，直接使用回报的宽高 |
+
+### 跳过条件（保护体验，任一命中即恢复默认布局）
+
+- **评论区上下文**：`VideoItemParams.commentFeedPageId` 非空 / fragment 系字段类名含 `comment`·`cmt` / Activity 名含 `comment`·`cmt`
+- **非主·详情页**：净屏模式激活时放行，否则仅 `MainActivity` / `DetailActivity`
+- **图集详情面板展开**：`VideoItemParams.isDetailPagePanelShow`（实测为**字段**）或详情页非净屏
+- **容器非全屏级**：父容器宽 < root 宽 85% 或高 < root 高 40%（半屏卡片不适配）
+
+### 复核方法备忘（教训）
+
+- 抖音有 55 个 dex，**不能**用「dex 字符串池扫描」定位类定义 —— 描述符被引用 ≠ 类定义在该 dex
+  （实测 `KeepSurfaceTextureView` 的字符串出现在别的 dex）。必须按 **class_defs**（`dexdump` 的
+  `Class descriptor` 行）定位，本项目的定位结果见 `build/analysis/dex/dump-p*.txt`。
+- 旧版模块（douyinnocrop 1.1.0，面向旧抖音）的全部 hook 点在 40.6.0 依然有效，
+  连混淆名 `sA` 都未改；但 `width`/`height` 的混淆别名 `t`/`s` 需要宽松反射兜底。
+
+---
+
+## 6. adb_stay_awake —— ADB 调试常亮 ✅
+
+| 项 | 值 |
+|---|---|
+| 目标进程 | **system_server**（`scope.list` 的 `system`） |
+| 目标 App | `Constants.TARGET_SYSTEM`（"system"），UI 归入「系统应用 → 系统框架」 |
+| 来源 | 参考项目 **AdbStayAwake**（`GeneralPeople1970/AdbStayAwake`，`2eb2e74` 2026-09-21），单文件 `MainModule.java`（libxposed API 102，与本项目同 API）；**触发条件已按需求收紧**（见「与原实现的差异」） |
+| 实现 | `libhook/.../rules/system/AdbStayAwakeHook.kt` |
+| 默认 | 开启；**需重启设备**生效（system_server 无法单独重启） |
+
+### 功能语义（2026-10-03 语义收紧：连接调试工具才常亮）
+
+**常亮判定**（改动核心）：
+
+```
+常亮 = adb_enabled == 1  &&  ( adb_connected == 1  ||  USB 线上启用 adb function )
+```
+
+1. **监听 ADB 连接状态**：`ContentObserver` 同时跟踪 `Settings.Global.ADB_ENABLED`（前置开关）与
+   `Settings.Global.ADB_CONNECTED`（"adb_connected"，adbd 连接状态，USB / 无线连接均会翻转），
+   另注册 `BroadcastReceiver` 跟踪 `android.hardware.usb.action.USB_STATE`（sticky 系统广播，
+   `connected=true` 且 `functions` 含 "adb"）作 USB 兜底；三者缓存于 `@Volatile` 字段。
+2. **强制保持常亮**：**已连接调试工具**时让 `getScreenOffTimeoutLocked` 返回 `Integer.MAX_VALUE`
+   （约 24.8 天），系统永不因超时自动熄屏；仅开着调试开关但未连接时不再强制常亮。
+3. **允许手动锁屏**：不 Hook 任何电源键路径 —— `goToSleep` 不经过屏幕超时计算，按电源键立即锁屏。
+4. **断开后恢复**：不永久修改任何系统字段；调试工具断开时透传 `chain.proceed()` 原值，
+   原有屏幕超时设置立即自动生效。
+
+### hook 点（AOSP Framework，名称稳定，无需反编译）
+
+| hook 点 | 作用 |
+|---|---|
+| `com.android.server.power.PowerManagerService#getScreenOffTimeoutLocked`（所有重载） | 返回极大超时值 |
+| `…#updateUserActivitySummaryLocked` / `…#updatePowerStateLocked` | 仅 `deoptimize()`，规避方法内联导致 Hook 不触发 |
+| `android.provider.Settings$Global.ADB_ENABLED` + `ContentObserver` | 前置开关跟踪（非 hook，是监听） |
+| `android.provider.Settings$Global.ADB_CONNECTED` + `ContentObserver` | adbd 连接状态跟踪（非 hook，是监听） |
+| `android.hardware.usb.action.USB_STATE` + `BroadcastReceiver` | USB adb 连接兜底信号（sticky 广播，注册即得当前值） |
+
+### 两个关键坑（原实现实测踩过，Kotlin 移植已保留处理）
+
+1. **返回值类型必须与被 Hook 方法的真实返回类型一致**：不同 ROM 上 `getScreenOffTimeoutLocked`
+   返回 `int` 或 `long`（Xiaomi HyperOS / Android 15 为 `long`）。类型不匹配时框架 PROTECTIVE 模式
+   回填抛 `ClassCastException` → system_server 开机崩溃 bootloop。处理：以 `chain.proceed()`
+   原返回值的运行时类型为准（`is Long` → 返回 `Integer.MAX_VALUE.toLong()`），从根本上避免错配。
+2. **懒注册 ADB 监听的时机在 `mLock` 内**：`ensureAdbObserver` 由 `getScreenOffTimeoutLocked`
+   在持有 `PowerManagerService.mLock` 时调用，**绝不能**在其中做 Binder IPC（读 Settings /
+   注册 ContentObserver），否则锁序颠倒 / Watchdog 超时。处理：只做廉价反射取 `mContext`，
+   真正的注册工作 `Handler(mainLooper).post { … }` 投递到主线程，彻底脱离 mLock；
+   注册失败复位调度标志允许重试。
+
+### 与原实现的差异
+
+- **触发条件收紧（2026-10-03，用户需求）**：原实现「开启 USB / 无线调试（`adb_enabled=1`）即常亮」；
+  本实现改为「**已连接调试工具才常亮**」= `adb_enabled && (adb_connected || USB adb)`。
+  信号源：`Settings.Global.ADB_CONNECTED`（AOSP 由 AdbService / AdbDebuggingManager 在
+  连接建立 / 断开时更新，USB 与无线均翻转）+ `USB_STATE` sticky 广播兜底。
+  **⚠️ 真机实测结论（2026-10-03，HyperOS / Android 16，25098PN5AC）**：
+  - 判定链路全部正常：`settings put global adb_connected 1` → 超时变 `2147483647`；
+    置 `0` → 恢复原值 `30000`（ContentObserver 监听、判定、常亮、恢复均按预期工作）。
+  - **但 HyperOS 不维护 `adb_connected`**（`settings get global adb_connected` 返回 `null`，
+    该 key 从不写入）→ **无线调试连接场景下主信号缺失**：真实连着 adb 也不常亮。
+  - 待办（方案 B）：改走 hook `AdbDebuggingManager` / adbd 连接回调取得真实连接状态
+    （需反编译 HyperOS framework 确认类名 / 方法名）；USB 场景暂靠 `USB_STATE` 广播兜底（待插线实测）。
+- 原实现额外 `deoptimize()` 被 Hook 方法本身（best-effort）；移植版沿用，并由 `hookExecutable`
+  的 try-catch 兜底，失败不影响主流程。
+- 原实现为无界面独立模块；本实现进 `HookCatalog` 体系，受四级开关闸门控制
+  （总开关 / 安全模式 / `app_master::system` / `hook::adb_stay_awake`）。
+- UI：系统框架卡片隐藏「单独重启」按钮（system_server 不能 force-stop），提示重启设备生效。
+
+---
+
+## 7. cc_card_order —— 控制中心卡片排序 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/systemui/ControlCenterOrderHook.kt`（`MiuiPluginHook`） |
+| 目标进程 | `com.android.systemui`（类在 `miui.systemui.plugin` 插件内） |
+| 参考 | HyperStar `QSControlCenterList` |
+| 参数 | `HookParam.CardOrder()`（模块内仿控制中心的长按拖拽排序页，`CardOrderScreen`） |
+
+### 功能语义
+
+在模块内拖拽调整控制中心各卡片位置（磁贴卡片 / 媒体 / 亮度 / 音量 / 融合设备中心 /
+设备控制 / 列表 / 编辑按钮），通过改写各控制器的 `getPriority()` 生效。
+数值越小越靠上；某张卡未配置（-1）时回退原生值，行为与系统完全一致。
+
+### hook 点（系统界面组件 18.3.2.22.0）
+
+| hook 点 | 原生优先级 |
+|---|---|
+| `PluginInstance$PluginFactory#createPluginContext`（插件 ClassLoader 捕获入口） | — |
+| `…main.qs.QSCardsController#getPriority` | 20（磁贴卡片） |
+| `…main.media.MediaPlayerController#getPriority` | 30（媒体） |
+| `…main.brightness.BrightnessSliderController#getPriority` | 31（亮度） |
+| `…main.volume.VolumeSliderController#getPriority` | 32（音量） |
+| `…devicecenter.entry.DeviceCenterEntryController#getPriority` | 50（融合设备中心） |
+| `…devicecontrol.DeviceControlsEntryController#getPriority` | 51（设备控制） |
+| `…main.qs.QSListController#getPriority` | 100（列表） |
+| `…main.qs.EditButtonController#getPriority` | 200（编辑按钮） |
+
+### 实现要点
+
+- `onPluginLoaded(loader)` 里按 `CC_ORDER_CARDS` 逐个 `Class.forName(…, false, loader)`，
+  不存在的控制器跳过并 logw（版本漂移防御）；全部挂不上时 logw 提示。
+- 读取配置：`PrefsBridge.getInt(HookPrefs.configKey(id, cardKey), -1)`，`>=0` 才生效。
+- ⚠️ **消费方是 `MainPanelContentDistributor` 构造时按 `getPriority()` 升序排列 childControllers，
+  修改配置后需重启系统界面才会重排**。
+
+---
+
+## 8. cc_card_tiles —— 磁贴卡片自定义内容 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/systemui/CardStyleTilesHook.kt`（`MiuiPluginHook`） |
+| 目标进程 | `com.android.systemui`（类在 `miui.systemui.plugin` 插件内） |
+| 参考 | HyperStar `QSCardTileList` |
+| 参数 | `HookParam.MultiSelect("tiles")`（建议 2 或 4 个；留空 = 跟随系统） |
+
+### 功能语义
+
+自定义控制中心顶部大磁贴卡片的内容（WiFi / 移动数据 / 蓝牙 / 手电筒 / VoWiFi），
+替换系统原生的磁贴组合。系统原生 `getCardStyleTileSpecs()` 只返回
+`wifi+cell`（支持移动数据）或 `wifi+bt` 两组；本模块替换后可自由组合。
+
+### hook 点（系统界面组件 18.3.2.22.0）
+
+| hook 点 | 做了什么 |
+|---|---|
+| `PluginInstance$PluginFactory#createPluginContext` | 插件 ClassLoader 捕获入口 |
+| `miui.systemui.controlcenter.qs.QSController#getCardStyleTileSpecs` | 返回模块配置的 tile spec 列表（`wifi` / `cell` / `bt` / `flashlight` / `vowifi1` / `vowifi2`） |
+
+### 实现要点
+
+- 配置值以 `|` 连接存储（`HookPrefs.configKey(id, "tiles")`）；空 / 未配置时
+  `chain.proceed()` 原样返回，跟随系统。
+- ⚠️ HyperStar 还额外 hook `QSCardItemView#updateBackground` 给非默认磁贴补大卡片背景图——
+  这部分属视觉美化，依赖插件内 drawable 资源名，**暂未实现**；非默认磁贴用默认卡片样式渲染，
+  功能不受影响。
+
+---
+
+## 9. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx

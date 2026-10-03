@@ -54,6 +54,7 @@ import top.spacejoy.spacehook.common.HookMeta
 import top.spacejoy.spacehook.common.HookParam
 import top.spacejoy.spacehook.common.OrderCard
 import top.spacejoy.spacehook.common.TargetApp
+
 import top.spacejoy.spacehook.data.InstalledAppsProvider
 import top.spacejoy.spacehook.data.ProcessRestarter
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -354,19 +355,22 @@ private fun AppHookCard(
             }
 
             // ---- 单独重启该应用（点击先弹确认框）----
-            IconButton(
-                onClick = { if (!restarting) showRestartDialog = true },
-            ) {
-                Icon(
-                    imageVector = MiuixIcons.Refresh,
-                    contentDescription = "重启 ${app.displayName}",
-                    tint = if (restarting) {
-                        MiuixTheme.colorScheme.primary
-                    } else {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    },
-                    modifier = Modifier.size(20.dp),
-                )
+            // 系统框架（system_server）无法单独强制停止，只能重启设备生效，因此不显示重启按钮
+            if (!app.isSystemServer) {
+                IconButton(
+                    onClick = { if (!restarting) showRestartDialog = true },
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Refresh,
+                        contentDescription = "重启 ${app.displayName}",
+                        tint = if (restarting) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
 
             Switch(
@@ -380,14 +384,29 @@ private fun AppHookCard(
 
         if (expanded) {
             HorizontalDivider()
-            val (controlCenterHooks, plainHooks) =
-                hooks.partition { it.category == HookCategory.CONTROL_CENTER }
+            // 分组折叠子菜单：控制中心 / 状态栏；其余功能直接平铺
+            val (groupedHooks, plainHooks) = hooks.partition {
+                it.category == HookCategory.CONTROL_CENTER || it.category == HookCategory.STATUS_BAR
+            }
+            val (controlCenterHooks, statusBarHooks) = groupedHooks.partition {
+                it.category == HookCategory.CONTROL_CENTER
+            }
             plainHooks.forEach { hook ->
                 HookRow(hook = hook, appEnabled = appEnabled, onOpenConfig = onOpenConfig)
             }
             if (controlCenterHooks.isNotEmpty()) {
-                ControlCenterMenu(
+                HookGroupMenu(
+                    title = "控制中心",
                     hooks = controlCenterHooks,
+                    appEnabled = appEnabled,
+                    onOpenConfig = onOpenConfig,
+                )
+            }
+            // 「状态栏」分组常驻系统界面卡片（菜单层级保留，功能后续添加）
+            if (statusBarHooks.isNotEmpty() || app.packageName == "com.android.systemui") {
+                HookGroupMenu(
+                    title = "状态栏",
+                    hooks = statusBarHooks,
                     appEnabled = appEnabled,
                     onOpenConfig = onOpenConfig,
                 )
@@ -397,20 +416,21 @@ private fun AppHookCard(
 }
 
 /**
- * 「控制中心」折叠子菜单：把控制中心类 Hook 归类收纳进可展开/收起的分组。
+ * 分组折叠子菜单（「控制中心」/「状态栏」等）：把同分类 Hook 归类收纳进可展开/收起的分组。
  *
  * 标题行点击展开/收起；展开后复用 [HookRow] 渲染组内功能行。
  */
 @Composable
-private fun ControlCenterMenu(
+private fun HookGroupMenu(
+    title: String,
     hooks: List<HookMeta>,
     appEnabled: Boolean,
     onOpenConfig: (HookMeta) -> Unit,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
-        label = "controlCenterMenuArrow",
+        label = "hookGroupMenuArrow",
     )
     Column {
         Row(
@@ -422,20 +442,20 @@ private fun ControlCenterMenu(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "控制中心",
+                    text = title,
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${hooks.size} 个功能",
+                    text = if (hooks.isEmpty()) "暂无功能，后续添加" else "${hooks.size} 个功能",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.primary,
                 )
             }
             Icon(
                 imageVector = MiuixIcons.ChevronForward,
-                contentDescription = if (expanded) "收起控制中心分组" else "展开控制中心分组",
+                contentDescription = if (expanded) "收起${title}分组" else "展开${title}分组",
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier
                     .size(18.dp)

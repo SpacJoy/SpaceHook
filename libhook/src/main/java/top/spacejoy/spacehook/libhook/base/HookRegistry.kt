@@ -1,7 +1,9 @@
 package top.spacejoy.spacehook.libhook.base
 
+import top.spacejoy.spacehook.libhook.rules.douyin.DouYinNoCropHook
 import top.spacejoy.spacehook.libhook.rules.generic.InstallerRedirectHook
 import top.spacejoy.spacehook.libhook.rules.soundrecorder.DisableListAutoPlayHook
+import top.spacejoy.spacehook.libhook.rules.system.AdbStayAwakeHook
 import top.spacejoy.spacehook.libhook.rules.systemui.CardStyleTilesHook
 import top.spacejoy.spacehook.libhook.rules.systemui.ControlCenterOrderHook
 import top.spacejoy.spacehook.libhook.rules.systemui.DeviceCenterSizeHook
@@ -32,6 +34,12 @@ object HookRegistry {
         // 注意：目标安装器（InstallerX Revived）只是改道的接收方，
         // 不需要被 Hook，因此不在 scope.list 中。
         "installer_redirect" to { InstallerRedirectHook() },
+
+        // ===== 抖音 =====
+        "douyin_nocrop" to { DouYinNoCropHook() },
+
+        // ===== 系统框架（system_server） =====
+        "adb_stay_awake" to { AdbStayAwakeHook() },
     )
 
     /** 已注册的全部 Hook id */

@@ -34,8 +34,13 @@ UI 采用 [Miuix](https://compose-miuix-ui.github.io/miuix/)（小米 HyperOS �
 |---|---|---|
 | 锁屏大时钟显示冒号 | 系统界面 / 息屏显示 | 强制锁屏大时钟显示冒号；同时修正写入层，重启系统界面后依然生效，并覆盖编辑界面的预览 |
 | 录音列表点击不自动播放 | 录音机 | 点录音列表只进详情，不自动外放 |
-| 安装请求改道到默认安装器 | 待确认 | 把应用内安装请求从系统硬绑定安装器改道到 InstallerX 等默认安装器 |
+| 安装请求改道到默认安装器 | 发起安装请求的应用 | 把应用内安装请求从系统硬绑定安装器改道到 InstallerX 等默认安装器 |
 | 融合设备中心卡片尺寸 | 系统界面组件 | 控制中心设备中心卡片强制单行/双行/自定义高度 |
+| 控制中心卡片排序 | 系统界面组件 | 模块内仿控制中心的长按拖拽排序页，改写各卡片控制器优先级 |
+| 磁贴卡片自定义内容 | 系统界面组件 | 自定义控制中心顶部大磁贴卡片的磁贴组合（WiFi / 移动数据 / 蓝牙 / 手电筒 / VoWiFi） |
+| 抖音不裁剪 | 抖音 | 点开抖音视频详情保持原视频比例，不强制裁剪铺满 |
+| ADB 调试常亮 | 系统框架（system_server） | **已连接调试工具时**（`adb connect` 在线 / USB 插着且启用 adb）屏幕保持常亮，断开后自动恢复原有屏幕超时 |
+
 
 > ⚠️ 详细状态与 hook 点定位见 [`docs/HOOKS.md`](docs/HOOKS.md)。
 
@@ -46,8 +51,8 @@ UI 采用 [Miuix](https://compose-miuix-ui.github.io/miuix/)（小米 HyperOS �
 ### 环境要求
 
 - JDK **21**
-- Android SDK（compileSdk 37）
-- Gradle **9.1.0**（或使用项目自带 wrapper）
+- Android SDK（compileSdk 37 / minSdk 26 / targetSdk 37）
+- Gradle **9.3.1**（或使用项目自带 wrapper）
 
 ### 命令
 
@@ -74,8 +79,8 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 1. 装好 **LSPosed**（需支持 Xposed API 102，LSPosed 1.9.3+）
 2. `adb install app-debug.apk`
 3. 在 LSPosed 管理器中**启用 SpaceHook 模块**
-4. 勾选作用域（至少勾选你想 Hook 的应用）
-5. 重启目标应用（或重启系统界面）
+4. 勾选作用域（至少勾选你想 Hook 的应用；`system` 作用域对应 system_server 功能）
+5. 重启目标应用（或重启系统界面；**system_server 相关 Hook 需重启设备**生效）
 6. 打开 SpaceHook，首页应显示「**模块已激活**」并在「Hook 加载情况」中列出已注入进程
 
 ---
@@ -84,7 +89,7 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 | 组件 | 技术 |
 |---|---|
-| 语言 | Kotlin（JVM 17） |
+| 语言 | Kotlin（`:app` JVM 21；`:common` / `:libhook` JVM 17） |
 | UI | Jetpack Compose + **Miuix 0.9.4** |
 | Hook 框架 | **libxposed API 102**（modern Xposed API） |
 | 架构 | 多模块：`common`（纯数据） / `libhook`（Hook 实现） / `app`（UI） |
@@ -99,7 +104,8 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 | [`AGENTS.md`](AGENTS.md) | **开发交接指南**（给 AI Agent 或新协作者的入口） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 架构设计、libxposed API 102 全部签名、Miuix API 速查 |
 | [`docs/PROGRESS.md`](docs/PROGRESS.md) | 实时开发进度、已知问题、设计决策、下一步 |
-| [`docs/HOOKS.md`](docs/HOOKS.md) | 每个 Hook 的定位表与待复核项 |
+| [`docs/HOOKS.md`](docs/HOOKS.md) | 每个 Hook 的 hook 点定位表与实现要点 |
+| [`docs/ANALYSIS-SoundMan.md`](docs/ANALYSIS-SoundMan.md) | SoundMan 移植分析报告（hook 点定位、风险、移植方案） |
 
 ---
 

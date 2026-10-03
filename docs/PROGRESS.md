@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-09-27（预测性返回动画 / 首页去重 / 参考项目登记）
+> 最后更新：2026-10-03（撤销三合一状态图标移植：移除 `combined_status`）
 
 ---
 
@@ -19,6 +19,11 @@
 | 8 | 编译验证 | ✅ 完成 | `BUILD SUCCESSFUL`，产物 `app/build/outputs/apk/debug/app-debug.apk`（11.7 MB） |
 | 9 | 4 个 Hook 的 jadx 复核 | ✅ 完成 | LockColon 9/9 ✅、DeviceCenterSize 4/4 ✅、DisableListAutoPlay 修正 1 处、InstallerRedirect 用稳定框架 API |
 | 10 | 真机部署验证 | ✅ **成功** | Xiaomi 25098PN5AC / Android 17(API 37) / LSPosed 2.2.0-it；3 个进程注入成功，Hook 全部装载 |
+| 11 | 抖音不裁剪 Hook（移植 douyinnocrop v1.1.0） | ✅ 完成 | 5/5 hook 点经抖音 40.6.0（400601）dexdump 复核；修正原实现 2 个 bug；构建通过，待真机验证 |
+| 12 | ADB 调试常亮 Hook（移植 AdbStayAwake） | ✅ 完成 | **首个 system_server Hook**；hook `PowerManagerService#getScreenOffTimeoutLocked`（ADB 开启时返回极大超时值）；构建通过，待真机验证 |
+| 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
+| 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
+| 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
 
 ---
 
@@ -62,9 +67,9 @@
 
 | 级别 | 问题 | 处理建议 |
 |---|---|---|
-| 🔴 高 | 4 个 Hook 的类名/方法名来自**旧 BeanShell 脚本**，未用 jadx 复核 | 逐个用 jadx 打开对应 APK 核对；见 `docs/HOOKS.md` 的「待复核」标记 |
+| ✅ 已解决 | ~~4 个 Hook 的类名/方法名来自**旧 BeanShell 脚本**，未用 jadx 复核~~ → **8 个 Hook 的 hook 点已全部实测验证**（2026-09-26 ~ 2026-10-03） | 复核明细见 `docs/HOOKS.md` 各节 |
 | ✅ 已解决 | ~~123云盘真实包名未知~~ → 确认为 **`com.mfcloudcalculate.networkdisk`** | 已回填 `HookCatalog.targetApps` / `installer_redirect.targetPackages` / `scope.list`；命令：`aapt2 dump badging` |
-| 🟡 中 | jadx-ai-mcp 插件（`127.0.0.1:8650`）请求无响应 | 在 jadx GUI 里确认插件已启用；或用 `docs` 中的 CLI 兜底方案 |
+| ✅ 已废弃 | ~~jadx-ai-mcp 插件（`127.0.0.1:8650`）请求无响应~~ | 2026-10-03 起不再使用 jadx-ai-mcp 插件（8650 作废）；jadx-GUI 不再打开，`jadx-gui-1.5.6-all.jar` 恢复保留但仅以 CLI 模式调用 |
 | 🟡 中 | `BaseHook.replace()` 的返回值语义依赖「try 块最后表达式」 | 已实现并加注释，改动时注意不要破坏 |
 | 🟡 中 | `DeviceCenterSizeHook` 依赖 MIUI plugin 子 ClassLoader，机型差异大 | 需要真机验证；失败时看 `ClassLoaderUtils` 的日志 |
 | 🟢 低 | 未做 `miuix-blur` 模糊效果接入（`blurEnabled` 开关已预留但未实装） | 后续可加 `miuix-blur-android` 依赖 |
@@ -201,11 +206,11 @@
 
 ### 参考项目（本地检出，**只登记、不更新**）
 
-> **完整清单见 `AGENTS.md` 第 6 节「参考项目」**（7 个项目 + origin + 本地最后提交快照）。
+> **完整清单见 `AGENTS.md` 第 6 节「参考项目」**（9 个项目 + origin + 本地最后提交快照）。
 > 这里不重复表格，避免两处漂移。
 >
-> ⚠️ 全部在 `D:/Code/Android/Projects/OSHook/references/` 下：
-> HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric。
+> ⚠️ 全部在 `D:/Code/Android/Projects/Referenzprojekt/` 下（2026-10-02 从 `OSHook/references` 迁来）：
+> HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric / SoundMan / AdbStayAwake。
 > **部分可能落后上游**（`InstallerX-Revived` 是 tarball 快照、无 git 历史），作者有空再自行 `git pull`。
 > 文档里的「最后提交」只是**登记那一刻的快照，不要据此断定版本** —— 用之前先 `git log -1` 核对。
 
@@ -257,7 +262,7 @@
 
 ---
 
-## 四之七、导航改用 Miuix `miuix-nav`：顶层整屏路由 + Y 轴转场（2026-09-27）
+## 四之六、导航改用 Miuix `miuix-nav`：顶层整屏路由 + Y 轴转场（2026-09-27）
 
 > 依据已安装的 **`miuix-style` skill**（`~/.agents/skills/miuix-style`）的三条要求：
 > ① 复用组件库 ② 子页面层级放顶层 ③ 动画用 Miuix 的 Y 动画。
@@ -295,7 +300,7 @@
 
 ---
 
-## 四之六、预测性返回（Predictive Back）动画（2026-09-27）✅ 真机已验证
+## 四之七、预测性返回（Predictive Back）动画（2026-09-27）✅ 真机已验证
 
 ### 问题
 Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松手后才整页切换；
@@ -335,6 +340,155 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-03（撤销三合一状态图标移植：移除 `combined_status`）
+
+- **按用户需求取消移植**，移除全部实现：`libhook/.../rules/systemui/` 的 `CombinedStatusHook.kt`
+  / `CombinedSignalSource.kt` / `CombinedCompat.kt`、`common/.../combined/` 绘制层（4 文件）、
+  `CombinedStatusScreen.kt` 配置页、`HookCatalog` / `HookRegistry` / `HookListScreen` /
+  `SpaceHookNavHost` 中的登记与跳转，以及 `docs/ANALYSIS-CombinedStatus.md` 分析文档。
+- **保留**：`HookCategory.STATUS_BAR` 分类 +「系统界面 → 状态栏」折叠子菜单（空态显示
+  「暂无功能，后续添加」），后续状态栏类新功能直接挂入。
+- 同日「一期移植」「对照源码全对齐」两条变更记录**保留作历史**（实现已随之移除）。
+- 随附保留：`XLog` 级别映射修正（`XLog.kt` / `PrefsBridge.kt`）——诊断日志能力与三合一无关，独立有效。
+
+### 2026-10-03（`combined_status` 对照源码全对齐：锁屏 + 过渡动画）
+
+用户反馈「状态栏正常 hook 了，但过渡动画和锁屏等没生效」，对照原 APK 反编译源核验出 12 项差异后全部对齐（fork 子代理实现，真机验证通过）：
+
+- **锁屏（D5）**：attach 改多角色——沿容器向上探测 `MiuiKeyguardStatusBarView` 建 role=1
+  锁屏会话，`DisplayPolicy.attach` 三式 + `enabled()` 六参全表（从字节码恢复）；keyguard 状态
+  联动 `changed()`/`eligible()` 完整 reason 表。真机日志确认 role=0/1/5/6 四会话建立、
+  role=1 在 `keyguard-hidden↔ready` 正常流转。
+- **过渡动画（D9）**：hook `onExpansionChanged` 两合成 lambda 捕获面板/通知阴影展开进度，
+  `expansion()` 按 `Motion.ease`（smoothstep）收缩渐隐，不再是恒 0f。
+- 其余对齐：dispatchDraw `NativeDraw` 原生回退 + bypass 短路（D3）、`readyForMerge` 补
+  level 未知排除 + `networks.healthy`（D4）、setImageResource 负 resId 读 `mResource` 兜底（D7）、
+  detach 源 verbatim 清理序 + `reconcileIsland`/`scheduleBurnIn`（D8）、fail 退避对齐
+  `min(60s, 2000<<min(5,n))`（D10）、#18 改 main.post 异步（D11）、enum 契约补 `isEnum` 校验（D12）。
+- `CombinedCompat` 新增 motion/keyguard/chargingIsland/closedAnchor 能力位 + 8 条契约；
+  hook 句柄 26 → **29**。
+- **真机验证**：BUILD SUCCESSFUL + 覆盖安装 + 重启系统界面；「安装完成：29 个 hook 句柄；
+  Required members matched」、deoptimize 六组全命中、**无熔断、无 FATAL**。
+- 遗留：`KeyguardHandoff`/`MotionHandoff` 语义简化（注释标偏离）；`markActive` 配置写入被拒
+  （仅影响 UI「已生效」标记，待改 UI 侧判定）。
+
+### 2026-10-03（三合一状态图标 Hook 一期移植：`combined_status`）
+
+- **来源**：APK `D:\Code\Android\APK\Hook\三合一状态图标_1.4.3.apk`（`com.aiden.combinedstatus`，
+  libxposed API 102，`ModuleMain` 3312 行）；jadx CLI 全量反编译 + 双路子代理分析，
+  报告定稿 `docs/ANALYSIS-CombinedStatus.md`（32 注册点/45 hook 定位表、支撑类、风险、移植方案）。
+- **功能**：状态栏移动信号/Wi-Fi/电池三合一组合图标；尺寸/字重/缩放/配色/百分比全可调，
+  省电/性能/充电/低电自动着色；`mode` 0=合并显示（默认）/1=还原原生。
+- **新增实现**：
+  - `common/.../combined/`：`CombinedModels.kt`（契约数据类 + `CombinedConfig` 键常量）、
+    `CombinedPaintPolicy.kt`、`CombinedWifiGeometry.kt`（HyperWifi 43 条贝塞尔路径）、
+    `CombinedIconPainter.kt`（**UI 预览与 hook 共用的绘制实现，预览即所得**）。
+  - `libhook/.../rules/systemui/`：`CombinedStatusHook.kt`（一期 19 个 hook 点 + inner Session +
+    PrefixPrefs）、`CombinedSignalSource.kt`（三通道信号）、`CombinedCompat.kt`（59 条结构契约 +
+    能力位 + HookTransaction 事务回滚）；`HookRegistry` 注册 `combined_status`。
+  - UI：「系统界面 → 状态栏 → 三合一图标」折叠子菜单（`HookCategory.STATUS_BAR` 新分类）+
+    `CombinedStatusScreen.kt` 独立配置页（页顶实时预览图 + 状态模拟 + 颜色取色 + 重启系统界面工具）。
+- **关键决策**：参数**实时生效**（RemotePreferences 监听 + 绘制入口读最新值兜底），
+  仅功能开关挂载/卸载需重启系统界面；配置跨进程弃源的 ContentProvider，改 LSPosed RemotePreferences；
+  源 `Application#onCreate` hook 不可回滚瑕疵已修。
+- **构建/安装**：BUILD SUCCESSFUL（JDK 21 + Gradle 9.3.1），已覆盖安装到真机（25098PN5AC）。
+  功能默认关闭，UI 开启后点「重启系统界面」生效。
+- 二期能力（展开动画/灵动岛/锁屏 AOD）与三期（防烧屏/自诊断/LiquidGlass）未实现，见分析文档 §7.3。
+
+### 2026-10-03（`adb_stay_awake` 语义收紧：连接调试工具才常亮）
+
+用户需求（原话）："adb调试常亮 逻辑从开启调试时常亮修改为已连接到调试工具时才常亮"：
+
+- **判定改为** `adb_enabled && (adb_connected || USB adb)`：`Settings.Global.ADB_CONNECTED`
+  （adbd 连接状态，USB / 无线均翻转）为主信号，`android.hardware.usb.action.USB_STATE`
+  sticky 广播（`connected` + `functions` 含 "adb"）作 USB 兜底；`adb_enabled` 保留为前置开关。
+- `AdbStayAwakeHook.kt`：缓存拆为 `adbEnabled` / `adbConnected` / `usbAdbActive` 三个 `@Volatile`
+  字段，`ContentObserver` 双 URI 监听 + `BroadcastReceiver`（RECEIVER_NOT_EXPORTED，失败退回旧重载）；
+  懒注册仍投递主线程执行（`mLock` 内禁 IPC 的坑不变）。
+- `HookCatalog` / `docs/HOOKS.md` 第 6 节 / `README.md` 功能表同步更新。
+- **真机验证（2026-10-03，重启后实测）**：判定链路全部正常——`adb_connected=1` 时超时变
+  `2147483647`、置 `0` 恢复 `30000`（监听 / 判定 / 常亮 / 恢复四环全通）。
+  **实测发现：HyperOS 不维护 `adb_connected`**（key 恒 `null`）→ 无线调试连接场景主信号缺失，
+  真实连着 adb 也不常亮。待办：方案 B（hook `AdbDebuggingManager` / adbd 连接回调，
+  需反编译 HyperOS framework 确认签名）；USB 场景靠 `USB_STATE` 广播兜底（待插线实测）。
+
+### 2026-10-03（文档完善 + SoundMan 移植分析报告）
+
+- **新增 `docs/ANALYSIS-SoundMan.md`**：SoundMan（killerprojecte/SoundMan，YukiHookAPI，hook 目录约
+  14,000 行）移植分析报告。两个并行子代理全量核实「系统音频核心 + Zygote 设备亲和性」与
+  「SystemUI 音量面板入口」，产出 hook 点定位表（14 + 6 条）、隐藏 API 脆弱度分级、规则数据流
+  （UID 主键 + usage 伪装拆 Mix 机制）、风险清单（含原实现鉴权空洞，移植必须修复）与
+  YukiHookAPI → libxposed 102 改写对照、三阶段移植方案。**移植未开始**（用户决策：先只出分析报告）。
+- `docs/HOOKS.md`：补 `cc_card_order` / `cc_card_tiles` 两节（第 7、8 节，模板顺延为第 9 节），
+  复核总览表补两行，头部复核状态 5 → 8 个 Hook。
+- `README.md`：功能表补全至 8 个 Hook；修正技术栈（`:app` JVM 21 / `common`、`libhook` JVM 17；
+  Gradle 9.3.1）；修正 `installer_redirect` 目标描述（发起安装请求的应用）；文档表补分析报告；
+  安装步骤补 system_server 需重启设备。
+- `AGENTS.md`：修正 compileSdk/minSdk/targetSdk 36/26/36 → **37/26/37**；目录结构补
+  `rules/douyin`、`rules/system` 与 cc_card_* 两个实现文件；参考项目表 SoundMan 行更新为「分析完成」。
+
+### 2026-10-03（新增「ADB 调试常亮」Hook：移植自参考项目 AdbStayAwake）
+
+用户需求（原话）："添加该项目的hook内容：`D:\Code\Android\Projects\Referenzprojekt\AdbStayAwake`"：
+
+- **移植源分析**：`AdbStayAwake`（`GeneralPeople1970/AdbStayAwake`，`2eb2e74` 2026-09-21）
+  是 libxposed API 102 的单文件模块（`MainModule.java`，279 行，scope = `system`），
+  与本项目**同 API 版本**，逻辑可原样移植，无需 jadx 复核（目标是 AOSP Framework）
+- **功能语义**（四点）：① `ContentObserver` 监听 `Settings.Global.ADB_ENABLED`；
+  ② ADB 激活时让 `PowerManagerService#getScreenOffTimeoutLocked`（所有重载）返回
+  `Integer.MAX_VALUE`（≈24.8 天）永不超时熄屏；③ 不 hook 电源键路径，手动锁屏不受影响；
+  ④ 不永久改系统字段，ADB 断开后透传原值、自动恢复原屏幕超时设置
+- **两个关键坑已随移植保留处理**：① 返回值类型必须与真实返回类型一致
+  （HyperOS/Android 15 为 `long`，错配会在 PROTECTIVE 回填时 `ClassCastException` →
+  system_server 开机 bootloop）→ 以 `chain.proceed()` 原值运行时类型为准；
+  ② 懒注册 ADB 监听的 `ensureAdbObserver` 在持有 `PowerManagerService.mLock` 时被调用，
+  不能做 Binder IPC → 反射取 `mContext` 后 `Handler(mainLooper).post` 到主线程注册
+- **新增实现** `libhook/.../rules/system/AdbStayAwakeHook.kt`（`BaseHook("adb_stay_awake")`）：
+  按名字匹配 `getScreenOffTimeoutLocked` 全部重载逐个 `hookExecutable`；
+  `deoptimize()` 被 hook 方法本身 + `updateUserActivitySummaryLocked` /
+  `updatePowerStateLocked` 两个调用者（best-effort，规避内联）
+- **注册四处**：`HookCatalog` 加 targetApp「系统框架」（`Constants.TARGET_SYSTEM`，
+  `AppCategory.SYSTEM`，UI 一级菜单展示）+ hook 条目（`HookCategory.SYSTEM_FRAMEWORK`，
+  默认开启，`requiresReboot=true`）；`HookRegistry` 加 `"adb_stay_awake"` 映射；
+  `scope.list` **已有 `system`** 无需改；`docs/HOOKS.md` 新增第 6 节，模板节顺延为第 7 节
+- **UI 适配** `HookListScreen.kt`：`AppHookCard` 对 `app.isSystemServer` 隐藏「单独重启」按钮
+  （system_server 不能 force-stop，只能重启设备生效）
+- 本项目对原实现的增强：进四级开关闸门（`app_master::system` / `hook::adb_stay_awake`），
+  可在 UI 中随时开关
+- **构建验证**：`:app:assembleDebug` `BUILD SUCCESSFUL`（2026-10-03，JDK 21.0.12.1 + Gradle 9.3.1，
+  `common`/`libhook`/`app` 三模块 Kotlin 全量编译通过；仅 AGP 9.1 的
+  `builtInKotlin`/`newDsl` 弃用告警，与本次改动无关）
+
+### 2026-10-03（新增「抖音不裁剪」Hook：移植自 douyinnocrop v1.1.0）
+
+用户需求（原话）："参考该apk 添加hook `D:\Code\Android\APK\Hook\douyinnocrop-v1.1.0.apk`"，
+并指定用素材目录里**当前版抖音 APK** 复核 hook 点（不能只信移植源里的旧类名）：
+
+- **移植源分析**：`douyinnocrop-v1.1.0.apk`（io.github.dunxuan.douyinnocrop，本身是
+  libxposed API 102 模块）jadx 反编译后确认功能语义：Feed 流视频/图集按**原始宽高比
+  完整显示**（等比贴合全屏容器），不裁剪填充 9:16；共 5 组 hook 点、4 个类
+- **当前抖音复核**（40.6.0 / versionCode 400601，55 个 dex）：用 `dexdump`（build-tools 36.1.0）
+  按 class_defs 扫描全部 55 个 dex，13 个目标类全部定位成功，**5 组 hook 点签名全部未变**
+  （含混淆名 `CleanModeViewModel#sA`）；`Aweme.getAid/getVideo`、`VideoItemParams` 字段组、
+  `bind(Aweme[,int])`、`onVideoSizeChanged(...,int,int)`、`onAttachedToWindow` 均 ✅
+- **新增实现** `libhook/.../rules/douyin/`（4 个文件）：
+  `NoCropReflect`（宽容反射工具，含按**参数签名**找方法的抗混淆探测）、
+  `NoCropVideoAspect`（读宽高比/图集判定/aid，支持 `width`/`height` 及混淆别名 `t`/`s`）、
+  `NoCropFitApplier`（布局适配状态机：pending/STATES/undo/watch/refitAll + 4 类跳过条件）、
+  `DouYinNoCropHook`（BaseHook("douyin_nocrop")，5 组 hook，均 proceed 后做副作用，
+  `ExceptionMode.PROTECTIVE` 保底）
+- **修正原实现 2 个 Java bug**（注释已标注）：① `onPlayerSizeChanged` 宽高比是 **int 除法**
+  （竖屏得 0 被 sanity 区间拦掉）→ 改浮点除法；② 宽高对换语句顺序写错（两个都变成 height）
+  → 不做对换
+- **注册四处**：`HookMeta.HookCategory` 新增 `DOUYIN("抖音")`；`HookCatalog` 加 targetApp
+  「抖音」+ hook 条目（`experimental=true`）；`HookRegistry` 加 `"douyin_nocrop"` 映射；
+  `scope.list` 加 `com.ss.android.ugc.aweme`
+- 构建 `BUILD SUCCESSFUL`（JDK 21，同前）；`docs/HOOKS.md` 新增第 5 节（hook 点表 +
+  复核明细 + 跳过条件 + 教训），模板节顺延为第 6 节
+- **教训**：⚠️ dex 的「字符串池扫描命中」≠ 类定义在该 dex（描述符仅被引用也会命中），
+  定位类必须按 **class_defs**（dexdump 的 `Class descriptor` 行）；另外本机 pwsh
+  `ExecutionPolicy=AllSigned` 不能跑未签名 `.ps1`，脚本须内联进 `-Command`
 
 ### 2026-10-03（控制中心类 Hook 归类到「控制中心」折叠子菜单）
 
@@ -412,7 +566,7 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 - 转场统一用库自带 **Y 轴动画** `NavTransitions.Modal`；预测性返回 / 侧滑跟手改用库内置实现
 - 删除自研 `ui/PredictiveBackStack.kt`（及三处手写的「← 返回」卡片）
 - `:app` 的 JVM target 17 → **21**（Miuix 0.9.4 class 文件为 21，inline 的 nav DSL 无法内联到 17）
-- 详见「四之七」
+- 详见「四之六」
 
 ### 2026-09-27（登记参考项目 HyperCeiler）
 
@@ -478,7 +632,7 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 
 ---
 
-## 七、模块更新流程（已核实 + 实测）
+## 六、模块更新流程（已核实 + 实测）
 
 **覆盖安装 + 重启目标应用即可，不需要卸载重装。**
 
@@ -497,12 +651,15 @@ LSPosed 官方升级说明同样是 *Install over the previous version → Force
 
 ---
 
-## 六、下一步建议（优先级从高到低）
+## 七、下一步建议（优先级从高到低）
 
-1. ~~确认 123 云盘包名~~ ✅ **已完成**（`com.mfcloudcalculate.networkdisk`，4 个 APK 包名均已核实）
-2. **逐个复核 4 个 Hook 的 hook 点**，用 jadx 核对类名/方法签名/参数类型，更新 `docs/HOOKS.md`
-3. **真机部署验证**：`adb install app-debug.apk` → LSPosed 启用 → 勾选作用域 → 重启目标应用 → 看首页「已生效进程」
-4. 实装模糊效果（`miuix-blur-android`）与显式「立即热重载」按钮
-5. 可选：接入 jadx-ai-mcp 插件（需先在 jadx GUI 中确认插件处于服务状态）
+1. ~~确认 123 云盘包名~~ ✅ **已完成**（`com.mfcloudcalculate.networkdisk`，APK 包名均已核实）
+2. ~~逐个复核 Hook 点~~ ✅ **已完成**（8 个 Hook 全部实测验证，2026-09-26 ~ 2026-10-03）
+3. ~~真机部署验证~~ ✅ **已完成**（见「四之三」；覆盖安装更新流程见「六」）
+4. **SoundMan 移植**：分析报告已完成（`docs/ANALYSIS-SoundMan.md`），按其中三阶段方案实施
+   （第一阶段：按应用音量 + 规则 UI），待启动
+5. `adb_stay_awake` 真机验证：需重启设备（system_server Hook），验证 ADB 开启常亮 / 断开恢复
+6. 「状态栏」分组后续功能：菜单层级已保留（`HookCategory.STATUS_BAR`），新功能挂入即可
+7. 实装模糊效果（`miuix-blur-android`）与显式「立即热重载」按钮
 
 > ✅ 构建链路已完全跑通，可直接 `adb install app/build/outputs/apk/debug/app-debug.apk` 做初步冒烟测试。

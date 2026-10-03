@@ -19,7 +19,7 @@
 | 模块 | `miuix-ui` / `miuix-preference` / `miuix-icons` / **`miuix-nav`**（导航：`NavDisplay` + Y 轴转场） |
 | 语言 | Kotlin（JVM Target：`:app` = **21**，`common`/`libhook` = 17） |
 | 构建 | Gradle 9.3.1 + AGP 9.1.0 + Kotlin 2.4.20 |
-| compileSdk / minSdk / targetSdk | 36 / 26 / 36 |
+| compileSdk / minSdk / targetSdk | 37 / 26 / 37 |
 | 后端 | 无（纯 Kotlin，无 Native） |
 
 ---
@@ -54,7 +54,8 @@ Xposed.spacejoy.top/
 ├── docs/
 │   ├── ARCHITECTURE.md          架构与设计决策
 │   ├── PROGRESS.md              开发进度（每次改动请更新！）
-│   └── HOOKS.md                 Hook 功能清单 + hook 点定位表
+│   ├── HOOKS.md                 Hook 功能清单 + hook 点定位表
+│   └── ANALYSIS-SoundMan.md     SoundMan 移植分析报告
 ├── common/                      纯数据层（UI 与 Hook 进程共用，禁止依赖 libxposed / Compose）
 │   └── src/main/java/top/spacejoy/spacehook/common/
 │       ├── Constants.kt         全局常量
@@ -80,7 +81,11 @@ Xposed.spacejoy.top/
 │           └── rules/                   各 Hook 实现
 │               ├── systemui/LockColonHook.kt
 │               ├── systemui/DeviceCenterSizeHook.kt
+│               ├── systemui/ControlCenterOrderHook.kt（cc_card_order）
+│               ├── systemui/CardStyleTilesHook.kt（cc_card_tiles）
 │               ├── soundrecorder/DisableListAutoPlayHook.kt
+│               ├── douyin/DouYinNoCropHook.kt
+│               ├── system/AdbStayAwakeHook.kt（system_server）
 │               └── generic/InstallerRedirectHook.kt
 └── app/                         UI 层（模块 App）
     └── src/main/java/top/spacejoy/spacehook/
@@ -93,7 +98,7 @@ Xposed.spacejoy.top/
             ├── SpaceHookNavHost.kt   ★ 顶层路由（Miuix `NavDisplay` + `NavTransitions.Modal` Y 轴转场）
             ├── MainScreen.kt         一级外壳：SmallTopAppBar + NavigationBar（三页签）
             ├── theme/SpaceHookTheme.kt
-            └── screens/{Home,HookList,Settings}Screen.kt
+            └── screens/{Home,HookList,Settings,CardOrder,TilePicker}Screen.kt
 ```
 
 ---
@@ -245,11 +250,14 @@ class MyNewHook : BaseHook("my_new_hook") {
 
 ## 6. 反编译分析（jadx）
 
-> ✅ **推荐方案：jadx-headless-mcp**（无头，不依赖 GUI，已在 2026-09-26 验证可用）
+> ✅ **推荐方案：jadx-headless-mcp**（无头，已在 2026-09-26 验证可用）
+> 🚫 **已弃用（2026-10-03）**：`jadx-ai-mcp` 插件不再使用（8650 作废），jadx-GUI 不再打开
+> （`jadx-gui-1.5.6-all.jar` 恢复保留，仅以 CLI 模式调用，见方式 B）。
 
 ### 方式 A：jadx-headless-mcp（首选）
 
-`jadx-ai-mcp` 是**嵌在 jadx GUI 里的插件**，没有 GUI 上下文就退出，无法无头运行。
+`jadx-ai-mcp` 是**嵌在 jadx GUI 里的插件**，没有 GUI 上下文就退出，无法无头运行
+（该插件已于 2026-10-03 弃用，jadx-GUI 不再打开）。
 `jadx-headless-mcp` 是单进程 Java 重写版，jadx-core 与 MCP 服务同进程，
 走 Streamable HTTP，天然适合自动化。
 
@@ -265,7 +273,7 @@ export JADX_CACHE_DIR="D:/Code/Android/APK/out/jadx-cache"   # 必须设置！�
 ```
 
 - MCP 端点：`http://127.0.0.1:8660/mcp`
-- ⚠️ **不要用 8650** —— 那是 jadx-ai-mcp 插件的端口，可能被 GUI 占用
+- ⚠️ **8650 端口作废** —— 那是已弃用的 jadx-ai-mcp 插件端口，勿使用
 - ⚠️ **必须设 `JADX_CACHE_DIR`**，否则报 `Unable to determine if root directory exists`
 - 已写入 `~/.workbuddy/mcp.json`，客户端可直接连（需先手动启动服务）
 
@@ -294,11 +302,14 @@ cd D:/Code/Android/Projects/LSPosed/Xposed.spacejoy.top
 
 ### 方式 B：jadx CLI 全量反编译（快，适合 grep 工作流）
 
-本机已有 all-in-one jar，25 MB 的 APK 约 30–40 秒出全量源码：
+⚠️ **jadx-GUI 界面不再使用（2026-10-03）**；jadx 安装目录是 **`D:/Otheapps/jadx-gui`**，
+其中的 `jadx-gui-1.5.6-all.jar` **仅以 CLI 模式调用**（`jadx.cli.JadxCLI`，已实测 `--version` = 1.5.6），
+**不启动 `jadx-gui-1.5.6.exe`**。
+25 MB 的 APK 约 30–40 秒出全量源码：
 
 ```bash
 JAVA="C:/Program Files/Java/latest/jdk-21/bin/java.exe"
-JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win/lib/jadx-gui-1.5.6-all.jar"
+JADX_JAR="D:/Otheapps/jadx-gui/lib/jadx-gui-1.5.6-all.jar"
 
 "$JAVA" -cp "$JADX_JAR" jadx.cli.JadxCLI \
   -d D:/Code/Android/APK/out/<名称> \
@@ -326,13 +337,15 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 
 | 项目 | origin（GitHub） | 本地最后提交（快照） | 用途 |
 |---|---|---|---|
-| **HyperCeiler** | `ReChronoRain/HyperCeiler` | `55d51aa8d` 2026-09-16（**与手头 APK 同一提交**） | **主要参考**：Hook 实现思路 + **明文目标类名**（查类名 grep 这份，别 grep APK） |
-| HyperStar | `YunZiA/HyperStar` | `ab51f1c` 2025-10-01 | 控制中心磁贴卡片编辑交互（本模块 `cc_card_tiles` 即参考其 `QSCardTileList`） |
-| HyperIsland | `1812z/HyperIsland` | `bc541ae` 2026-03-27 | 首页状态卡 / 状态格子布局参考（Flutter 项目） |
+| **HyperCeiler** | `ReChronoRain/HyperCeiler` | `4f1402b6e` 2026-10-02（手头 APK 是 `55d51aa8d` 的构建，检出已领先） | **主要参考**：Hook 实现思路 + **明文目标类名**（查类名 grep 这份，别 grep APK） |
+| HyperStar | `YunZiA/HyperStar` | `8a1362a` 2026-05-14（master） | 控制中心磁贴卡片编辑交互（本模块 `cc_card_tiles` 即参考其 `QSCardTileList`） |
+| HyperIsland | `1812z/HyperIsland` | `f7d04c8a` 2026-10-02 | 首页状态卡 / 状态格子布局参考（Flutter 项目） |
 | InstallerX-Revived | `wxxsfxyzm/InstallerX-Revived` | **非 git**（tarball 快照，2026-09-27 下载） | 首页 Miuix 布局（`MiuixHomePage.kt`） |
-| janus | `penguinyzsh/janus` | `f58e051` 2026-03-27 | 各 App Hook 点线索（**本项目尚未用到**） |
-| SignHook | `xihan123/SignHook` | `4f5f8ad` 2026-03-25 | 同上，仅备查（**未分析**） |
-| Capsulyric | `FrancoGiudans/Capsulyric` | `8a3bead` 2026-03-25 | 同上，仅备查（**未分析**） |
+| janus | `penguinyzsh/janus` | `27e2831` 2026-04-06 | 各 App Hook 点线索（**本项目尚未用到**） |
+| SignHook | `xihan123/SignHook` | `2185ff1` 2026-06-21 | 同上，仅备查（**未分析**） |
+| Capsulyric | `FrancoGiudans/Capsulyric` | `dd020bc` 2026-09-28 | 同上，仅备查（**未分析**） |
+| SoundMan | `killerprojecte/SoundMan` | `963c360` 2026-10-01 | 按应用音量 / 按应用固定输出设备 / HyperOS 音量侧栏入口（YukiHookAPI，hook 目录约 14,000 行）；**分析完成，见 `docs/ANALYSIS-SoundMan.md`**（2026-10-03，移植未开始） |
+| AdbStayAwake | `GeneralPeople1970/AdbStayAwake` | `2eb2e74` 2026-09-21 | ADB 调试时保持屏幕常亮（libxposed API 102 单文件模块）；**已移植为 `adb_stay_awake`**（2026-10-03，见 `docs/HOOKS.md` 第 6 节） |
 
 **用 HyperCeiler 找参考时的两个坑（已实测）**：
 
@@ -355,7 +368,7 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 
 ### APK 素材（`D:/Code/Android/APK/Hook`）
 
-全部 9 个（包名 / 版本已用 `aapt2 dump badging` 核实）：
+全部 12 个（包名 / 版本已用 `aapt2 dump badging` 核实，2026-10-03 全量复核）：
 
 | APK | 包名 | 版本 | 用途 |
 |---|---|---|---|
@@ -365,9 +378,12 @@ JADX_JAR="C:/Users/SpaceJoy/Downloads/IDM/Compressed/jadx-gui-1.5.6-with-jre-win
 | `123云盘_3.3.0.apk` | `com.mfcloudcalculate.networkdisk` | 3.3.0 | InstallerRedirect |
 | `时钟_18.26.0.apk` | `com.android.deskclock` | 18.26.0 | 新增素材（2026-10-02），**用途待定** |
 | `网易云音乐_9.6.05.apk` | `com.netease.cloudmusic` | 9.6.05 | 新增素材（2026-10-02），**用途待定** |
+| `抖音不裁剪.apk` | `io.github.dunxuan.douyinnocrop` | 1.1.0 (8) | 新增素材（2026-10-03），第三方工具；**已移植为 `douyin_nocrop`**（见 `docs/HOOKS.md` 第 5 节） |
+| `抖音.apk` | `com.ss.android.ugc.aweme` | 40.6.0 (400601) | 新增素材（2026-10-03），`douyin_nocrop` 的 hook 点复核依据（dexdump 按 class_defs 验证） |
 | `系统桌面_RELEASE-8.01.02.7722-….apk` | `com.miui.home` | 8.01.02.7722 | 桌面参考（已有 `APK/out/miuihome*` 反编译产物） |
 | `HyperCeiler_2.10.166-55d51aa8d-r4667.apk` | `com.sevtinge.hyperceiler` | 2.10.166 | 参考模块（**非 Hook 目标**） |
 | `HyperStar_2.2.0_202604250117.apk` | `com.yunzia.hyperstar` | 2.2.0 | 参考模块（**非 Hook 目标**） |
+| `三合一状态图标_1.4.3.apk` | `com.aiden.combinedstatus` | 1.4.3 (29) | 新增素材（2026-10-03），libxposed API 102 同源；移植尝试已撤销，**用途待定** |
 
 > 💡 查任意 APK 包名的最快方式（**无需 jadx、无需反编译**）：
 > ```bash

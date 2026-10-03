@@ -129,10 +129,9 @@ fun SpaceHookNavHost() {
                     subtitle = "调整结果立即保存，重启对应应用后生效",
                     onBack = { nav.pop() },
                 ) {
-                    if (hook.params.any { it is HookParam.CardOrder }) {
-                        CardOrderScreen(hook = hook)
-                    } else {
-                        TilePickerScreen(hook = hook)
+                    when {
+                        hook.params.any { it is HookParam.CardOrder } -> CardOrderScreen(hook = hook)
+                        else -> TilePickerScreen(hook = hook)
                     }
                 }
             }

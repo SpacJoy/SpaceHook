@@ -47,10 +47,14 @@ enum class HookCategory(val displayName: String) {
 
     /** 控制中心类（卡片/磁贴相关），UI 上归入「控制中心」折叠子菜单 */
     CONTROL_CENTER("控制中心"),
+
+    /** 状态栏类（图标/时钟等），UI 上归入「状态栏」折叠子菜单 */
+    STATUS_BAR("状态栏"),
     SYSTEM_FRAMEWORK("系统框架"),
     SOUND_RECORDER("录音机"),
     INSTALLER("安装器"),
     NETWORK_DISK("网盘"),
+    DOUYIN("抖音"),
     OTHER("其他"),
 }
 

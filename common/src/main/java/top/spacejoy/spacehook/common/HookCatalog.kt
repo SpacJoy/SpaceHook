@@ -1,4 +1,4 @@
-package top.spacejoy.spacehook.common
+﻿package top.spacejoy.spacehook.common
 
 /**
  * Hook 能力清单 —— 模块唯一的「功能注册表」。
@@ -24,6 +24,14 @@ object HookCatalog {
             category = AppCategory.SYSTEM,
             note = "锁屏 / 状态栏 / 控制中心；也承载「系统界面组件」的插件代码",
         ),
+        // 系统框架（system_server）：特殊目标，包名固定为 Constants.TARGET_SYSTEM（"system"）。
+        // 与普通 App 不同，它只能通过「重启设备」重新加载 Hook，UI 侧据此隐藏单独重启按钮。
+        TargetApp(
+            packageName = Constants.TARGET_SYSTEM,
+            displayName = "系统框架",
+            category = AppCategory.SYSTEM,
+            note = "system_server；改动需重启设备生效",
+        ),
         TargetApp(
             packageName = "com.miui.aod",
             displayName = "息屏显示",
@@ -46,6 +54,12 @@ object HookCatalog {
             displayName = "123云盘",
             category = AppCategory.THIRD_PARTY,
             note = "安装请求回归系统默认安装器",
+        ),
+        TargetApp(
+            packageName = "com.ss.android.ugc.aweme",
+            displayName = "抖音",
+            category = AppCategory.THIRD_PARTY,
+            note = "视频 / 图集按原始宽高比完整显示（不裁剪）",
         ),
     )
 
@@ -94,6 +108,43 @@ object HookCatalog {
                 "android.app.PendingIntent#getActivity",
                 "android.content.pm.PackageInstaller#createSession",
                 "android.content.pm.PackageInstaller\$Session#commit",
+            ),
+        ),
+        HookMeta(
+            id = "douyin_nocrop",
+            name = "抖音不裁剪",
+            description = "Feed 流视频 / 图集按原始宽高比完整显示（等比贴合全屏容器），不再裁剪填充 9:16。" +
+                "适配抖音 40.6.0；评论区、详情面板、非全屏卡片自动跳过。",
+            targetPackages = listOf("com.ss.android.ugc.aweme"),
+            category = HookCategory.DOUYIN,
+            defaultEnabled = true,
+            experimental = true,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.ss.android.ugc.aweme.feed.model.VideoItemParams#getAweme()",
+                "com.ss.android.ugc.playerkit.videoview.KeepSurfaceTextureView#onAttachedToWindow()",
+                "com.ss.android.ugc.aweme.feed.adapter.FeedImageViewHolder#bind(Aweme[,int])（含 Full/Detail 子类）",
+                "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.cleanmode.CleanModeViewModel#sA(CleanModeCommand,String,boolean)（混淆名，按签名查找）",
+                "com.ss.android.videoshop.mediaview.VideoPatchLayout#onVideoSizeChanged(...,int,int)",
+            ),
+        ),
+        HookMeta(
+            id = "adb_stay_awake",
+            name = "ADB 调试常亮",
+            description = "**已连接调试工具时**（adb connect 在线 / USB 线启用 adb）屏幕永不因超时熄屏，" +
+                "方便长时间调试；断开调试工具后自动恢复原有屏幕超时设置。电源键锁屏不受影响。" +
+                "作用于系统框架（system_server），需重启设备生效。",
+            targetPackages = listOf(Constants.TARGET_SYSTEM),
+            category = HookCategory.SYSTEM_FRAMEWORK,
+            defaultEnabled = true,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.android.server.power.PowerManagerService#getScreenOffTimeoutLocked(所有重载)",
+                "com.android.server.power.PowerManagerService#updateUserActivitySummaryLocked（去优化，规避内联）",
+                "com.android.server.power.PowerManagerService#updatePowerStateLocked（去优化，规避内联）",
+                "android.provider.Settings\$Global#ADB_ENABLED（ContentObserver 监听，前置条件）",
+                "android.provider.Settings\$Global#ADB_CONNECTED（ContentObserver 监听，adbd 连接状态）",
+                "android.hardware.usb.action.USB_STATE（BroadcastReceiver，USB adb 兜底信号）",
             ),
         ),
         HookMeta(
