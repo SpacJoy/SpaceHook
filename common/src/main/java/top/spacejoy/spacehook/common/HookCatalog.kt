@@ -315,11 +315,11 @@ object HookCatalog {
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
-                    summary = "单行 = 全部指标挤成一行；左右双列 = 仪表在左列、网速在右列，列内各占两行",
+                    summary = "单行 = 全部指标挤成一行；双列 = 网速在左列、仪表在右列，列内各占两行",
                     default = 1,
                     options = listOf(
                         HookParam.Select.Option(0, "单行"),
-                        HookParam.Select.Option(1, "左右双列"),
+                        HookParam.Select.Option(1, "双列"),
                     ),
                 ),
                 HookParam.IntRange(
@@ -390,13 +390,13 @@ object HookCatalog {
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
-                    summary = "单行 = 下行、上行排在同一行；左右双列 = 下行、上行分两行放在右列。" +
-                        "与「功耗/温度仪表」同时开启时，仪表占左列、网速占右列",
+                    summary = "单行 = 上传、下载排在同一行；双列 = 上传、下载分两行放在左列。" +
+                        "与「功耗/温度仪表」同时开启时，网速占左列、仪表占右列",
                     default = -1,
                     options = listOf(
                         HookParam.Select.Option(-1, "跟随样式"),
                         HookParam.Select.Option(0, "单行"),
-                        HookParam.Select.Option(1, "左右双列"),
+                        HookParam.Select.Option(1, "双列"),
                     ),
                 ),
                 HookParam.IntRange(
@@ -410,7 +410,27 @@ object HookCatalog {
                 HookParam.Select(
                     key = "hide_unit",
                     title = "单位",
-                    summary = "是否隐藏 KB/s、MB/s 后缀",
+                    summary = "是否隐藏 KB/s、MB/s 后缀（整段单位一起隐藏）",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "显示"),
+                        HookParam.Select.Option(1, "隐藏"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "hide_arrow",
+                    title = "上下行符号",
+                    summary = "是否隐藏 ↑ / ↓ 箭头",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "显示"),
+                        HookParam.Select.Option(1, "隐藏"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "hide_per_s",
+                    title = "速率后缀 /s",
+                    summary = "隐藏 /s，只留 KB、MB；与上面的「单位」互不影响",
                     default = 0,
                     options = listOf(
                         HookParam.Select.Option(0, "显示"),

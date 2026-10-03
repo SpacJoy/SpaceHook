@@ -16,11 +16,11 @@ import top.spacejoy.spacehook.libhook.utils.PrefsBridge
  * 四种样式：
  * - 0 值和单位单行（`12.3KB/s`）
  * - 1 值和单位双排（数字一行、单位一行）
- * - 2 上下行单行（`↓12.3KB/s ↑1.2KB/s`）
- * - 3 上下行双排（下行一行、上行一行）
+ * - 2 上下行单行（`↑1.2KB/s ↓12.3KB/s`）
+ * - 3 上下行双排（上传一行、下载一行）
  *
  * 单独开启时按自己的字号 / 刷新间隔显示；与仪表同时开启时，排布与样式以仪表为准，
- * 网速那段接在仪表后面。
+ * 网速恒占左列、仪表恒占右列。
  */
 internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
@@ -29,8 +29,8 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
             override val order: Int = ORDER
 
-            /** 网速恒在右列（仪表恒在左列），与开了几个槽位无关 */
-            override val column: Int = StatusBarMeterState.COLUMN_RIGHT
+            /** 网速恒在左列（仪表恒在右列），与开了几个槽位无关 */
+            override val column: Int = StatusBarMeterState.COLUMN_LEFT
 
             /**
              * 单行 / 双行。
@@ -38,8 +38,8 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
              * 页面上的「行数」独立开关优先；没设过（[LAYOUT_FOLLOW_STYLE]）时按 [style] 推导——
              * style 的 1 / 3 本来就是「值和单位双排」「上下行双排」，语义上就是双行。
              *
-             * 双行的含义：单独显示时下行一行、上行一行；与功耗/温度仪表同时开启时，
-             * 仪表占第一行、网速占第二行（见 [StatusBarMeterState.compose]）。
+             * 双行的含义：单独显示时上传一行、下载一行；与功耗/温度仪表同时开启时，
+             * 网速占左列、仪表占右列（见 [StatusBarMeterState.compose]）。
              */
             override val layout: Int
                 get() {
@@ -114,6 +114,12 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
     private val hideUnit: Boolean get() = cfg("hide_unit", OFF) == ON
 
+    /** 隐藏 ↑ / ↓ 箭头 */
+    private val hideArrow: Boolean get() = cfg("hide_arrow", OFF) == ON
+
+    /** 隐藏速率后缀里的 `/s`，保留 KB / MB */
+    private val hidePerSec: Boolean get() = cfg("hide_per_s", OFF) == ON
+
     /** 速率拆成「数字 / 单位」两段；`hide_unit` 时单位段为空 */
     private fun rateParts(bytesPerSec: Double): Pair<String, String> {
         val kb = bytesPerSec / 1024.0
@@ -121,10 +127,10 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
         val unit: String
         if (kb >= 1024.0) {
             value = MeterReader.fmt(kb / 1024.0, decimals)
-            unit = "MB/s"
+            unit = if (hidePerSec) "MB" else "MB/s"
         } else {
             value = MeterReader.fmt(kb, decimals)
-            unit = "KB/s"
+            unit = if (hidePerSec) "KB" else "KB/s"
         }
         return if (hideUnit) value to "" else value to unit
     }
@@ -134,12 +140,14 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
         return value + unit
     }
 
-    /** 上下行两段，下行在前；`swap_places` 交换顺序 */
+    /** 上下行两段，**上传在前、下载在后**；`swap_places` 交换顺序 */
     private fun rxTx(speed: MeterReader.NetSpeed, swap: Boolean): Pair<String, String> {
-        val down = "↓" + rateText(speed.rx)
-        val up = "↑" + rateText(speed.tx)
-        return if (swap) up to down else down to up
+        val down = arrow("↓") + rateText(speed.rx)
+        val up = arrow("↑") + rateText(speed.tx)
+        return if (swap) down to up else up to down
     }
+
+    private fun arrow(symbol: String): String = if (hideArrow) "" else symbol
 
     private companion object {
 

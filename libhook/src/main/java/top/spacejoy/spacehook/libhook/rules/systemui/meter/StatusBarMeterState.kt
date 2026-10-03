@@ -12,9 +12,9 @@ import java.lang.ref.WeakReference
  *
  * 组装规则：
  * - 单行：所有片段按 [Contributor.order] 升序用空格连成一行，放进「数字」文本框
- * - 左右双列：按 [Contributor.column] 分栏——仪表恒在左列、网速恒在右列，
+ * - 左右双列：按 [Contributor.column] 分栏——**网速恒在左列、仪表恒在右列**，
  *   列内按 order / 槽位顺序排列，每列各自均衡切成 1–2 行。
- *   **分栏与「开了几个槽位」无关**，只有网速在时它照样在右列。
+ *   **分栏与「开了几个槽位」无关**，只有网速在时它照样在左列。
  * - 排布 / 字号 / 粗细 / 刷新间隔以 order 最小的贡献者为准（功耗仪表优先）
  */
 internal object StatusBarMeterState {
@@ -30,7 +30,7 @@ internal object StatusBarMeterState {
         /** 排序权重，小的排前面（功耗仪表 0、实时网速 10） */
         val order: Int
 
-        /** 落在哪一列：[COLUMN_LEFT]（默认，仪表）/ [COLUMN_RIGHT]（网速） */
+        /** 落在哪一列：[COLUMN_LEFT]（网速）/ [COLUMN_RIGHT]（仪表） */
         val column: Int get() = COLUMN_LEFT
 
         /** 单行 [LAYOUT_SINGLE] / 双行 [LAYOUT_DUAL] */
@@ -165,7 +165,7 @@ internal object StatusBarMeterState {
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        // 左右双列：仪表恒在左列（功耗/电流/温度），网速恒在右列（下行/上行），
+        // 左右双列：网速恒在左列（下行/上行），仪表恒在右列（功耗/电流/温度），
         // 每列各自均衡切行。分栏与「开了几个槽位」无关。
         // 单行：全部挤进「数字」框，右列留空。
         val result = if (primary()?.layout == LAYOUT_DUAL) {
