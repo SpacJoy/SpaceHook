@@ -62,6 +62,9 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
 
             /** 一个槽位一段；读不到数据的槽位直接跳过 */
             override fun render(reader: MeterReader): List<String> {
+                // 仪表是右列：左空隙 = 与网速之间的间距，右空隙 = 与状态栏图标之间的间距
+                StatusBarMeterState.meterGapLeftDp = cfg("gap_left", 0)
+                StatusBarMeterState.meterGapRightDp = cfg("gap_right", 0)
                 // 「仅充电时显示」：没插电就整段留空，把原生内容顶掉
                 if (cfg("in_charge", OFF) == ON && !reader.isCharging()) return listOf("")
                 val parts = ArrayList<String>(4)

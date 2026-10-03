@@ -1,6 +1,7 @@
 package top.spacejoy.spacehook.ui.screens
 
 import android.widget.Toast
+import top.spacejoy.spacehook.common.Constants
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -1268,10 +1269,13 @@ internal fun BatchRestartDialog(apps: List<TargetApp>, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var selected by remember { mutableStateOf(apps.map { it.packageName }.toSet()) }
+    // 系统框架（system_server）没法单独强制停止，只能重启设备才生效 —— 批量列表里也剔掉
+    val targets = remember(apps) { apps.filter { it.packageName != Constants.TARGET_SYSTEM } }
+
+    var selected by remember { mutableStateOf(targets.map { it.packageName }.toSet()) }
     var restarting by remember { mutableStateOf(false) }
 
-    val allSelected = apps.isNotEmpty() && selected.size == apps.size
+    val allSelected = targets.isNotEmpty() && selected.size == targets.size
 
     fun toggle(packageName: String) {
         selected = if (packageName in selected) selected - packageName else selected + packageName
@@ -1287,7 +1291,7 @@ internal fun BatchRestartDialog(apps: List<TargetApp>, onDismiss: () -> Unit) {
                 text = "勾选要重启的应用，重启后其中的 Hook 会立即重新加载。",
                 style = MiuixTheme.textStyles.body2,
             )
-            if (apps.any { it.packageName == "com.android.systemui" }) {
+            if (targets.any { it.packageName == "com.android.systemui" }) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "⚠️ 重启「系统界面」会让状态栏、控制中心、锁屏短暂重建。",
@@ -1302,7 +1306,7 @@ internal fun BatchRestartDialog(apps: List<TargetApp>, onDismiss: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        selected = if (allSelected) emptySet() else apps.map { it.packageName }.toSet()
+                        selected = if (allSelected) emptySet() else targets.map { it.packageName }.toSet()
                     }
                     .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1310,19 +1314,19 @@ internal fun BatchRestartDialog(apps: List<TargetApp>, onDismiss: () -> Unit) {
                 Checkbox(
                     state = if (allSelected) ToggleableState.On else ToggleableState.Off,
                     onClick = {
-                        selected = if (allSelected) emptySet() else apps.map { it.packageName }.toSet()
+                        selected = if (allSelected) emptySet() else targets.map { it.packageName }.toSet()
                     },
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (allSelected) "全不选" else "全选（${apps.size}）",
+                    text = if (allSelected) "全不选" else "全选（${targets.size}）",
                     style = MiuixTheme.textStyles.body1,
                 )
             }
 
             HorizontalDivider()
 
-            apps.forEach { app ->
+            targets.forEach { app ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1360,10 +1364,10 @@ internal fun BatchRestartDialog(apps: List<TargetApp>, onDismiss: () -> Unit) {
                         if (restarting || selected.isEmpty()) return@TextButton
                         restarting = true
                         scope.launch {
-                            val targets = apps.filter { it.packageName in selected }
+                            val picked = apps.filter { it.packageName in selected }
                             var success = 0
                             var failed = 0
-                            targets.forEach { app ->
+                            picked.forEach { app ->
                                 val result = withContext(Dispatchers.IO) {
                                     ProcessRestarter.restartByRoot(app.packageName)
                                 }

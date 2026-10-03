@@ -97,6 +97,18 @@ internal object StatusBarMeterState {
 
     private var lastComposed: Pair<String, String>? = null
 
+    /**
+     * 文本外空隙（dp），由两个 Hook 各自写自己那一份，布局时统一取用。
+     *
+     * 列序固定为「网速在左、仪表在右」，所以：
+     * 整块左边距 = [speedGapLeftDp]；两列间距 = [speedGapRightDp] + [meterGapLeftDp]；
+     * 整块右边距 = [meterGapRightDp]。单行时只有左边距与右边距有意义。
+     */
+    @Volatile var speedGapLeftDp = 0
+    @Volatile var speedGapRightDp = 0
+    @Volatile var meterGapLeftDp = 0
+    @Volatile var meterGapRightDp = 0
+
     /** 登记一个承载视图 */
     @Synchronized
     fun addView(view: View) {

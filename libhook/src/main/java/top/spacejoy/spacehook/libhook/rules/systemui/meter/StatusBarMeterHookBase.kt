@@ -80,7 +80,12 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                 if (StatusBarMeterState.active) {
                     // 一次刷新只组装一次：网速是差分采样，组装两遍会白白推进一次基线
                     val text = StatusBarMeterState.compose()
-                    if (text != null) for (view in views) writeText(view, text)
+                    if (text != null) {
+                        for (view in views) {
+                            writeText(view, text)
+                            applyStructure(view)
+                        }
+                    }
                 }
                 // 布局期之后再抓一次结构：onFinishInflate 时 isShown 还没算出来
                 if (dumpedViews.size < views.size) for (view in views) dumpView(view)
@@ -318,6 +323,54 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     }
 
     /**
+     * 只在定时器里跑的结构调整：空隙 + 靠右。
+     *
+     * 列序固定「网速在左、仪表在右」：整块左边距取网速的左空隙，整块右边距取仪表的右空隙，
+     * 两列间距 = 网速的右空隙 + 仪表的左空隙 + 内置的 [COLUMN_GAP_DP]（保证默认观感不变）。
+     *
+     * 图标容器比文本宽，内容左对齐就在右侧空出一大截（实测容器 380px、文本 183px）；
+     * 让承载视图撑满容器、内容靠右，文本就贴到电池图标那一侧。
+     *
+     * **不放进 `writeText`**：那条路会被原生的 `setNetworkSpeed` / `updateNetworkSpeed$1`
+     * 从布局过程中调进来，在那里改 `layoutParams` / `padding` 等于在布局期 `requestLayout`。
+     * 定时器是 `Handler` 投递的，跑在两帧之间，安全。
+     */
+    private fun applyStructure(view: View) {
+        if (!view.isShown) return
+        val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
+        val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
+        val density = view.resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).toInt()
+
+        val padLeft = dp(StatusBarMeterState.speedGapLeftDp)
+        val padRight = dp(StatusBarMeterState.meterGapRightDp)
+        if (view.paddingLeft != padLeft || view.paddingRight != padRight) {
+            view.setPadding(padLeft, view.paddingTop, padRight, view.paddingBottom)
+        }
+
+        val dual = StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL
+        val gap = if (dual) {
+            dp(COLUMN_GAP_DP + StatusBarMeterState.speedGapRightDp + StatusBarMeterState.meterGapLeftDp)
+        } else {
+            0
+        }
+        val unitParams = unit.layoutParams as? LinearLayout.LayoutParams
+        if (unitParams != null && unitParams.leftMargin != gap) {
+            unitParams.leftMargin = gap
+            unit.layoutParams = unitParams
+        }
+
+        val row = number.parent as? LinearLayout ?: return
+        val want = Gravity.END or Gravity.CENTER_VERTICAL
+        if (row.gravity != want) row.gravity = want
+        val params = view.layoutParams ?: return
+        if (params.width == ViewGroup.LayoutParams.MATCH_PARENT) return
+        params.width = ViewGroup.LayoutParams.MATCH_PARENT
+        if (params is LinearLayout.LayoutParams) params.weight = 0f
+        view.layoutParams = params
+    }
+
+    /**
      * 字号 / 字重 / 对齐 / 固定宽度 / 边距 / 垂直偏移。
      *
      * 除字号外**全部以「0 或默认值 = 不干预」为准**——原生视图的边距、宽度是系统
@@ -526,17 +579,26 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      *
      * 原生 `NetworkSpeedView` 会 inflate 出多个实例（实测 4 个）。可见性桥把控制器的
      * `mShowNetworkSpeed` 钉成 true 之后，状态栏那个容器里会同时露出两个——屏幕上就是
-     * 两块网速并排。凡是同时「已附着 + 可见」的实例，只留一个，其余 GONE。
+     * 两块网速并排。凡是同时「已附着 + 可见」的实例，只留一个，其余处理掉。
      *
      * 留哪一个：优先留单位框有内容的那个（原生控制器真正在推的那个）；都为空时留最后注册的。
-     * 被 GONE 的实例下一轮就不再 `isShown`，条件自然收敛，不会反复打架。
+     *
+     * **带资源 id 的那支（XML 膨胀出来的副本）直接 `removeView` 摘掉，不是 GONE。**
+     * 原生控制器每次刷新都会把它重新点亮，只 GONE 的话屏幕右侧会一闪一闪；
+     * 从父容器摘掉之后它就再也点不亮，而且它只是一份副本，摘掉没有副作用。
+     * 代码 `new` 出来的那支（`id == NO_ID`）是真正在用的，只做 GONE 兜底。
      */
     private fun collapseDuplicates(views: List<View>) {
         val shown = views.filter { it.isAttachedToWindow && it.isShown }
         if (shown.size < 2) return
         val keep = shown.lastOrNull { unitHasText(it) } ?: shown.last()
         for (view in shown) {
-            if (view !== keep && view.visibility != View.GONE) {
+            if (view === keep) continue
+            val parent = view.parent as? ViewGroup
+            if (view.id != View.NO_ID && parent != null) {
+                parent.removeView(view)
+                logd("摘掉重复视图: #${System.identityHashCode(view)} 保留 #${System.identityHashCode(keep)}")
+            } else if (view.visibility != View.GONE) {
                 view.visibility = View.GONE
                 logd("隐藏重复视图: #${System.identityHashCode(view)} 保留 #${System.identityHashCode(keep)}")
             }
@@ -563,6 +625,10 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             if (parent is LinearLayout) sb.append("(orientation=").append(parent.orientation).append(")")
             sb.append(" shown=").append(view.isShown)
                 .append(" vis=").append(view.visibility)
+                .append(" 视图宽=").append(view.width)
+                .append(" lp宽=").append(view.layoutParams?.width)
+                .append(" weight=").append((view.layoutParams as? LinearLayout.LayoutParams)?.weight)
+                .append(" 父宽=").append((view.parent as? View)?.width)
                 .append(" 数字框[").append(number.text).append("] size=").append(number.textSize)
                 .append(" ty=").append(number.translationY)
                 .append(" lp=").append(gravityOf(number))

@@ -75,6 +75,9 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
             override val refreshMs: Int get() = cfg("refresh_ms", 1000).coerceIn(500, 5000)
 
             override fun render(reader: MeterReader): List<String> {
+                // 网速是左列：左空隙 = 与通知图标之间的间距，右空隙 = 与仪表之间的间距
+                StatusBarMeterState.speedGapLeftDp = cfg("gap_left", 0)
+                StatusBarMeterState.speedGapRightDp = cfg("gap_right", 0)
                 val speed = reader.netSpeed()
                 // 「隐藏网速」：全部隐藏，或低于阈值时留空（阈值按收发合计算）
                 if (cfg("hide", OFF) == ON) {
