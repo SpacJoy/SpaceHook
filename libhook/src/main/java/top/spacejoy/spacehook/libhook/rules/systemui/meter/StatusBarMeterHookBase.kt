@@ -82,6 +82,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                     val text = StatusBarMeterState.compose()
                     if (text != null) for (view in views) writeText(view, text)
                 }
+                // 布局期之后再抓一次结构：onFinishInflate 时 isShown 还没算出来
+                if (dumpedViews.size < views.size) for (view in views) dumpView(view)
+                collapseDuplicates(views)
             } catch (t: Throwable) {
                 loge("仪表刷新异常", t)
             }
@@ -447,6 +450,34 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      */
     private fun ensureRow(view: View, number: TextView, unit: TextView): LinearLayout? {
         val container = number.parent as? ViewGroup ?: return null
+        // 文本框直接挂在 NetworkSpeedView 下（代码构造的那批实例，没有 resId）：
+        // 没有中间容器可换，就把 NetworkSpeedView 本身当横排行，两个框重排一次并补列间距。
+        if (container === view) {
+            val row = view as? LinearLayout ?: return null
+            row.orientation = LinearLayout.HORIZONTAL
+            row.gravity = Gravity.CENTER_VERTICAL
+            if (row.getTag(ROW_TAG) == null) {
+                row.setTag(ROW_TAG, java.lang.Boolean.TRUE)
+                if (number.parent === row) row.removeView(number)
+                if (unit.parent === row) row.removeView(unit)
+                row.addView(
+                    number,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+                row.addView(
+                    unit,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).also { it.leftMargin = view.dp(COLUMN_GAP_DP) },
+                )
+                logd("容器改为横排(内联): #${System.identityHashCode(view)} NetworkSpeedView 直接横排")
+            }
+            return row
+        }
         if (container is LinearLayout &&
             container.orientation == LinearLayout.HORIZONTAL &&
             container.childCount == 2
@@ -490,6 +521,31 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         }
     }
 
+    /**
+     * 屏幕上只留一个承载视图。
+     *
+     * 原生 `NetworkSpeedView` 会 inflate 出多个实例（实测 4 个）。可见性桥把控制器的
+     * `mShowNetworkSpeed` 钉成 true 之后，状态栏那个容器里会同时露出两个——屏幕上就是
+     * 两块网速并排。凡是同时「已附着 + 可见」的实例，只留一个，其余 GONE。
+     *
+     * 留哪一个：优先留单位框有内容的那个（原生控制器真正在推的那个）；都为空时留最后注册的。
+     * 被 GONE 的实例下一轮就不再 `isShown`，条件自然收敛，不会反复打架。
+     */
+    private fun collapseDuplicates(views: List<View>) {
+        val shown = views.filter { it.isAttachedToWindow && it.isShown }
+        if (shown.size < 2) return
+        val keep = shown.lastOrNull { unitHasText(it) } ?: shown.last()
+        for (view in shown) {
+            if (view !== keep && view.visibility != View.GONE) {
+                view.visibility = View.GONE
+                logd("隐藏重复视图: #${System.identityHashCode(view)} 保留 #${System.identityHashCode(keep)}")
+            }
+        }
+    }
+
+    private fun unitHasText(view: View): Boolean =
+        ((getField(view, FIELD_UNIT_TEXT) as? TextView)?.text?.isNotEmpty() == true)
+
     /** 一次性视图结构诊断：搞清原生到底怎么摆这两个文本框、一共几个实例 */
     private fun dumpView(view: View) {
         if (!dumpedViews.add(System.identityHashCode(view))) return
@@ -499,10 +555,15 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             val parent = number.parent
             val sb = StringBuilder()
             sb.append("视图诊断: 视图=").append(view.javaClass.simpleName)
+                .append(" #").append(System.identityHashCode(view))
                 .append(" id=").append(resId(view))
                 .append(" 父容器=").append(parent?.javaClass?.simpleName)
+                .append("#").append(parent?.let { System.identityHashCode(it) })
+                .append(" 子数=").append((parent as? ViewGroup)?.childCount)
             if (parent is LinearLayout) sb.append("(orientation=").append(parent.orientation).append(")")
-            sb.append(" 数字框[").append(number.text).append("] size=").append(number.textSize)
+            sb.append(" shown=").append(view.isShown)
+                .append(" vis=").append(view.visibility)
+                .append(" 数字框[").append(number.text).append("] size=").append(number.textSize)
                 .append(" ty=").append(number.translationY)
                 .append(" lp=").append(gravityOf(number))
             sb.append(" 单位框[").append(unit.text).append("] size=").append(unit.textSize)
@@ -559,6 +620,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
         /** 左右两列之间的间距（dp） */
         const val COLUMN_GAP_DP = 6
+
+        /** 标记「NetworkSpeedView 本身已重排成横排行」，避免每帧重排 */
+        private const val ROW_TAG = 0x7F0F0001
 
         val STYLE_REFRESH_METHODS = arrayOf("onDensityOrFontScaleChanged", "onMiuiThemeChanged")
     }
