@@ -115,7 +115,7 @@ object PrefsBridge {
 
     fun syncLogConfig() {
         XLog.applyConfig(
-            level = getInt(HookPrefs.LOG_LEVEL, XLog.LEVEL_INFO),
+            level = getInt(HookPrefs.LOG_LEVEL, XLog.LEVEL_DEBUG),
             verbose = isDebugMode(),
         )
     }

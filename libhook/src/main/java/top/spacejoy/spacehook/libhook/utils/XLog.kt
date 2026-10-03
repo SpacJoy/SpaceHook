@@ -24,9 +24,9 @@ object XLog {
     private var module: XposedModule? = null
     private var processName: String = "?"
 
-    /** 当前生效的日志级别 */
+    /** 当前生效的日志级别（默认 DEBUG：诊断日志必须可见） */
     @Volatile
-    var logLevel: Int = LEVEL_INFO
+    var logLevel: Int = LEVEL_DEBUG
 
     /** 是否输出调用栈（排障用） */
     @Volatile
@@ -72,10 +72,19 @@ object XLog {
     fun log(level: Int, tag: String, message: String, throwable: Throwable? = null) {
         if (level > logLevel) return
         val line = "[$processName] $message"
+        // XposedModule.log 的 priority 是 android.util.Log 级别（VERBOSE=2..ERROR=6），
+        // 与本类的 LEVEL_*（0..4）不同轴，必须映射，否则 ERROR(1) 会被 LSPosed 丢弃。
+        val priority = when (level) {
+            LEVEL_ERROR -> 6   // Log.ERROR
+            LEVEL_WARN -> 5    // Log.WARN
+            LEVEL_INFO -> 4    // Log.INFO
+            LEVEL_DEBUG -> 3   // Log.DEBUG
+            else -> return
+        }
         try {
             when {
-                throwable != null -> module?.log(level, tag, line, throwable)
-                else -> module?.log(level, tag, line)
+                throwable != null -> module?.log(priority, tag, line, throwable)
+                else -> module?.log(priority, tag, line)
             }
         } catch (_: Throwable) {
             // module 尚未初始化时忽略
