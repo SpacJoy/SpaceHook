@@ -78,7 +78,8 @@
 | 🟡 中 | `DeviceCenterSizeHook` 依赖 MIUI plugin 子 ClassLoader，机型差异大 | 需要真机验证；失败时看 `ClassLoaderUtils` 的日志 |
 | 🟢 低 | 未做 `miuix-blur` 模糊效果接入（`blurEnabled` 开关已预留但未实装） | 后续可加 `miuix-blur-android` 依赖 |
 | 🟢 低 | 「热重载」开关只写配置，UI 未接 `XposedService.hotReloadModule` | 可在设置页加显式「立即重载」按钮 |
-| 🔴 高 | **短时间内反复重启系统界面会让 LSPosed 进安全模式**（模块全部停用、日志静默，表现为「hook 完全没反应」） | 解除方式：**重启手机**。验证 Hook 时不要靠反复 `killall com.android.systemui` 试错 —— 一次重启目标进程就够；优先读 LSPosed 持久日志 `/data/adb/lspd/log/modules_*.log`（root 读），不要依赖只有 15~30 秒的 logcat 缓冲 |
+| 🔴 高 | **短时间内反复重启系统界面会让 LSPosed 进安全模式** | 安全模式**按进程生效，且作用于该进程下的全部模块** —— `com.android.systemui` 崩一次，**所有**模块在它里面都被跳过，不只是肇事那个。KeiMi 有自己的安全模式并会打日志（`Safety mode triggered by com.android.systemui; all KeiMi feature behavior is paused`），**本项目会被静默跳过、一行日志都没有** —— 「模块日志完全不见」本身就是安全模式的特征，不要误判成「代码没生效」。解除方式：**重启手机**。**验证前先自检**：在 LSPosed 持久日志 `/data/adb/lspd/log/modules_*.log`（root 读）里搜当前会话 id 的 `SpaceHook 已注入`；**搜不到就说明模块没加载，此时不要改代码，先重启**。验证时一次 `killall com.android.systemui` 就够，不要反复试错；不要依赖只有 15~30 秒的 logcat 缓冲 |
+| ✅ 已解决 | ~~承载视图 `layoutParams.width` 被改成 `MATCH_PARENT`，导致状态栏「靠右侧闪烁」+「右侧空隙太大」~~ | `MiuiStatusIconContainer.onLayout` 用 `x = 右内容边 - NetworkSpeedView.getNetworkSpeedWidth()` 摆子视图，而有内容时 `getNetworkSpeedWidth()` 直接返回 `getWidth()` ⇒ 满宽视图被算到容器左边界、下一轮又摆回右侧（闪烁），余量全落在右边（空隙）。**承载视图必须保持 `WRAP_CONTENT`**（原生 `IconManager.onCreateLayoutParams` 给的就是 `-2`）；间隙用视图自己的 `paddingStart/paddingEnd` 表达。见 `StatusBarMeterHookBase.applyStructure()` KDoc |
 
 ---
 
