@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -48,8 +51,10 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -58,7 +63,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 与 [HookParamsDialog]（列表内联弹窗）的区别：
  * - **整屏路由**，自带标题栏与返回手势，长参数列表不再挤在弹窗里滚动；
  * - 每项参数占一整行，左侧标题 + 说明、右侧当前取值，**点按展开**候选列表（6 个以上选项时不会横向溢出）；
- * - 数值型参数用 −/＋ 步进器就地调整；
+ * - 数值型参数用 −/＋ 步进器就地调整，也可以直接点数字手动输入；
  * - 底部提供「恢复默认」（一次重置本 Hook 的全部参数）与「重启目标应用生效」。
  *
  * 参数声明仍来自 [HookMeta.params]，本页只负责渲染与读写 `cfg::<hookId>::<key>`，
@@ -118,7 +123,7 @@ fun HookParamsScreen(hook: HookMeta) {
     ) {
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "点按任意一项即可调整，改动立即保存。点「−/＋」调整数值。",
+            text = "点按任意一项即可调整，改动立即保存。数值点「−/＋」调整，也可以直接点数字输入。",
             style = MiuixTheme.textStyles.footnote1,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
@@ -304,7 +309,7 @@ private fun SelectBlock(
     }
 }
 
-/** 数值参数行：标题 + 说明在左，−/＋ 步进器在右 */
+/** 数值参数行：标题 + 说明在左，−/＋ 步进器在右；点中间的数字可直接输入 */
 @Composable
 private fun RangeBlock(
     hookId: String,
@@ -314,11 +319,20 @@ private fun RangeBlock(
     var value by remember(hookId, param.key, resetSignal) {
         mutableStateOf(SettingsStore.getConfigInt(hookId, param.key, param.default))
     }
+    // null = 未在输入；非 null = 输入框里的当前文本
+    var draft by remember(hookId, param.key, resetSignal) { mutableStateOf<String?>(null) }
 
     fun update(next: Int) {
         val clamped = next.coerceIn(param.min, param.max)
         value = clamped
         SettingsStore.setConfigInt(hookId, param.key, clamped)
+    }
+
+    // 关掉输入框；文本能解析成整数就落盘（越界交给 update 收敛）
+    fun commit() {
+        val parsed = draft?.trim()?.toIntOrNull()
+        draft = null
+        if (parsed != null) update(parsed)
     }
 
     Row(
@@ -341,12 +355,64 @@ private fun RangeBlock(
 
         TextButton(text = "−", onClick = { update(value - param.step) })
         Box(
-            modifier = Modifier.width(56.dp),
+            modifier = Modifier
+                .width(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { draft = value.toString() }
+                .padding(vertical = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "$value", style = MiuixTheme.textStyles.body2)
+            Text(
+                text = value.toString(),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.primary,
+            )
         }
         TextButton(text = "＋", onClick = { update(value + param.step) })
+    }
+
+    val editing = draft
+    if (editing != null) {
+        OverlayDialog(
+            title = param.title,
+            show = true,
+            onDismissRequest = { draft = null },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "范围 ${param.min} ~ ${param.max}；超出范围会被收敛到边界。",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(8.dp))
+                TextField(
+                    value = editing,
+                    onValueChange = { input ->
+                        // 数字参数只收数字；前置负号留给未来可能出现的负区间
+                        draft = input.filterIndexed { index, c ->
+                            c.isDigit() || (index == 0 && c == '-')
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardActions = KeyboardActions(onDone = { commit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { draft = null },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    TextButton(
+                        text = "确定",
+                        onClick = { commit() },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 
