@@ -93,45 +93,63 @@ internal class MeterReader(private val context: Context) {
 
     // ==================== CPU 温度 ====================
 
-    private var thermalPath: String? = null
-    private var thermalScanned = false
+    private var thermalGroups: List<List<String>>? = null
 
     /**
-     * 扫描 thermal_zone：优先 type 含 "cpu" 的区，其次 "soc" / "ap" / "gpu"。
-     * 只扫一次并缓存路径——节点表在运行期不会变。
+     * 按优先级分好组的温度区 temp 节点：cpu → soc → ap → gpu。
+     *
+     * 关键在**剔除阈值节点**。设备上的 thermal_zone 里混着大量非传感器节点
+     * （`cpu-hw-trip-0`、`*-bcl-lvl0`、`*-ibat-lvl0`、`sdr0`…），它们恒等于
+     * 95 / 0 / −273 这类定值。`File.listFiles()` 的返回顺序不保证，一旦按顺序
+     * 撞上 `cpu-hw-trip-0`，温度就会永远卡在 95℃ 不动。
+     *
+     * 只扫一次并缓存分组——节点表在运行期不会变。
      */
-    private fun resolveThermalPath(): String? {
-        if (thermalScanned) return thermalPath
-        thermalScanned = true
-        val zones = File(THERMAL_ROOT).listFiles() ?: return null
-        var fallback: String? = null
-        for (key in THERMAL_KEYS) {
-            for (zone in zones) {
-                val type = try {
-                    File(zone, "type").takeIf { it.exists() }?.readText()?.trim()?.lowercase(Locale.US)
-                } catch (_: Throwable) {
-                    null
-                } ?: continue
-                if (!type.contains(key)) continue
-                val temp = File(zone, "temp")
-                if (!temp.exists()) continue
-                val path = temp.absolutePath
-                if (key == THERMAL_KEYS[0]) {
-                    thermalPath = path
-                    return path
-                }
-                if (fallback == null) fallback = path
-            }
+    private fun thermalGroups(): List<List<String>> {
+        thermalGroups?.let { return it }
+        val zones = File(THERMAL_ROOT).listFiles()
+            ?.filter { it.isDirectory }
+            ?.sortedBy { it.name.filter(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }
+            ?: emptyList()
+        val groups = ArrayList<MutableList<String>>(THERMAL_KEYS.size)
+        repeat(THERMAL_KEYS.size) { groups.add(ArrayList()) }
+        for (zone in zones) {
+            val type = try {
+                File(zone, "type").takeIf { it.exists() }?.readText()?.trim()?.lowercase(Locale.US)
+            } catch (_: Throwable) {
+                null
+            } ?: continue
+            if (THERMAL_BLACKLIST.any { type.contains(it) }) continue
+            val index = THERMAL_KEYS.indexOfFirst { type.contains(it) }
+            if (index < 0) continue
+            val temp = File(zone, "temp")
+            if (!temp.exists()) continue
+            groups[index].add(temp.absolutePath)
         }
-        thermalPath = fallback
-        return fallback
+        val result: List<List<String>> = groups
+        if (result.any { it.isNotEmpty() }) thermalGroups = result
+        return result
     }
 
-    /** CPU 温度（℃）；原始值 > 1000 视为毫摄氏度 */
-    fun cpuTempCelsius(): Double? {
-        val raw = readLong(resolveThermalPath() ?: return null) ?: return null
+    /** 原始值归一化：绝对值 > 1000 视为毫摄氏度；范围外的（阈值节点残值）当无效 */
+    private fun normalizeTemp(raw: Long?): Double? {
+        if (raw == null) return null
         val celsius = if (raw > 1000L || raw < -1000L) raw / 1000.0 else raw.toDouble()
-        return if (celsius > -50.0 && celsius < 200.0) celsius else null
+        return if (celsius >= 1.0 && celsius <= 150.0) celsius else null
+    }
+
+    /** CPU 温度（℃）：同一优先级组内取最高值（即最热的核心） */
+    fun cpuTempCelsius(): Double? {
+        for (group in thermalGroups()) {
+            var best: Double? = null
+            for (path in group) {
+                val celsius = normalizeTemp(readLong(path)) ?: continue
+                val current = best
+                if (current == null || celsius > current) best = celsius
+            }
+            if (best != null) return best
+        }
+        return null
     }
 
     // ==================== 网速 ====================
@@ -167,6 +185,14 @@ internal class MeterReader(private val context: Context) {
 
         /** 温度区 type 的匹配优先级 */
         private val THERMAL_KEYS = arrayOf("cpu", "soc", "ap", "gpu")
+
+        /**
+         * 阈值 / 上限 / 无效节点的特征词。
+         * type 命中任意一个的 thermal_zone 不是真实传感器，直接排除。
+         */
+        private val THERMAL_BLACKLIST = arrayOf(
+            "trip", "lvl", "limit", "ibat", "bcl", "sdr", "vsense", "virtual", "dummy",
+        )
 
         /** 固定小数位格式化，强制点号小数点 */
         fun fmt(value: Double, digits: Int): String =
