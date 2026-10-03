@@ -294,7 +294,7 @@ object HookCatalog {
                     key = "slot2",
                     title = "第 2 项",
                     summary = "仪表第 2 个指标；不需要就选「关闭」",
-                    default = 3,
+                    default = 4,
                     options = METER_SLOT_OPTIONS,
                 ),
                 HookParam.Select(
@@ -315,7 +315,7 @@ object HookCatalog {
                     key = "layout",
                     title = "排布方式",
                     summary = "单行 = 全部指标排成一行；双行 = 第 1 项独占一行，其余排第二行",
-                    default = 0,
+                    default = 1,
                     options = listOf(
                         HookParam.Select.Option(0, "单行"),
                         HookParam.Select.Option(1, "双行"),

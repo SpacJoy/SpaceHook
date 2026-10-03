@@ -226,12 +226,12 @@ class StatusBarMeterHook : BaseHook("status_bar_meter") {
     private val slots: IntArray
         get() = intArrayOf(
             cfg("slot1", SLOT_POWER),
-            cfg("slot2", SLOT_CPU_TEMP),
+            cfg("slot2", SLOT_BATTERY_TEMP),
             cfg("slot3", SLOT_OFF),
             cfg("slot4", SLOT_OFF),
         )
 
-    private val layoutMode: Int get() = cfg("layout", LAYOUT_SINGLE)
+    private val layoutMode: Int get() = cfg("layout", LAYOUT_DUAL)
     private val decimals: Int get() = cfg("decimals", 1).coerceIn(0, 2)
     private val hideUnit: Boolean get() = cfg("hide_unit", OFF) == ON
     private val bold: Boolean get() = cfg("bold", OFF) == ON
