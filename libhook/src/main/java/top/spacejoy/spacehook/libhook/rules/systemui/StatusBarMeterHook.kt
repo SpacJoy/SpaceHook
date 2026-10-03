@@ -85,8 +85,9 @@ class StatusBarMeterHook : BaseHook("status_bar_meter") {
     private fun hookController(clazz: Class<*>) {
         replace(clazz, "updateText", arrayOf<Class<*>>(Array<String>::class.java)) { chain ->
             val text = composeText()
+            // updateText(String[]) 只吃一个参数（String[]），不是两个 String
             if (text == null) chain.proceed()
-            else chain.proceed(arrayOf<Any?>(text.first, text.second))
+            else chain.proceed(arrayOf<Any?>(arrayOf(text.first, text.second)))
         }
 
         val bridge = findVisibilityBridge(clazz)
