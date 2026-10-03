@@ -76,6 +76,7 @@
 | 🟡 中 | `DeviceCenterSizeHook` 依赖 MIUI plugin 子 ClassLoader，机型差异大 | 需要真机验证；失败时看 `ClassLoaderUtils` 的日志 |
 | 🟢 低 | 未做 `miuix-blur` 模糊效果接入（`blurEnabled` 开关已预留但未实装） | 后续可加 `miuix-blur-android` 依赖 |
 | 🟢 低 | 「热重载」开关只写配置，UI 未接 `XposedService.hotReloadModule` | 可在设置页加显式「立即重载」按钮 |
+| 🔴 高 | **短时间内反复重启系统界面会让 LSPosed 进安全模式**（模块全部停用、日志静默，表现为「hook 完全没反应」） | 解除方式：**重启手机**。验证 Hook 时不要靠反复 `killall com.android.systemui` 试错 —— 一次重启目标进程就够；优先读 LSPosed 持久日志 `/data/adb/lspd/log/modules_*.log`（root 读），不要依赖只有 15~30 秒的 logcat 缓冲 |
 
 ---
 
