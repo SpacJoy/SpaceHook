@@ -6,6 +6,10 @@ package top.spacejoy.spacehook.common
  * 由 [HookMeta.params] 持有，UI 层据此渲染配置控件，
  * 读写统一走 `cfg::<hookId>::<key>` 的 RemotePreferences。
  *
+ * 页面形态参考 HyperCeiler 的功能设置页（PreferenceScreen）：
+ * 总开关独占一张卡 → 按 [group] 分组，每组一张卡 →
+ * 组内每项是「开关行 / 下拉行 / 滑条行」，[dependsOn] 命中时整行置灰不可点。
+ *
  * ⚠️ 本类会被 UI 进程读取，不允许引用任何 Hook 实现。
  */
 sealed interface HookParam {
@@ -16,24 +20,51 @@ sealed interface HookParam {
     /** 展示标题 */
     val title: String
 
-    /** 补充说明（显示在标题下方） */
+    /** 补充说明（显示在标题下方，可为空） */
     val summary: String
 
     /** 默认值 */
     val default: Int
 
-    /** 单选：渲染为一排可选芯片 */
+    /** 所属分组标题；空串表示「不分组」，在页面里独占一张卡片 */
+    val group: String
+
+    /**
+     * 依赖的参数键：该键当前值非 0 时本项才可用；空串表示无依赖。
+     *
+     * 对应 HyperCeiler 的 `android:dependency="<key>"`。
+     */
+    val dependsOn: String
+
+    /**
+     * 开关：渲染为右侧 `Switch`。
+     *
+     * 与其它参数一样以 `Int` 存储（0 = 关 / 1 = 开），
+     * 以便 Hook 侧统一用 `PrefsBridge.getInt` 读取。
+     */
+    data class Toggle(
+        override val key: String,
+        override val title: String,
+        override val summary: String = "",
+        override val default: Int = 0,
+        override val group: String = "",
+        override val dependsOn: String = "",
+    ) : HookParam
+
+    /** 单选：渲染为「当前值 + 箭头」，点按弹出候选对话框 */
     data class Select(
         override val key: String,
         override val title: String,
         override val summary: String = "",
         override val default: Int,
         val options: List<Option>,
+        override val group: String = "",
+        override val dependsOn: String = "",
     ) : HookParam {
         data class Option(val value: Int, val label: String)
     }
 
-    /** 数值范围：渲染为 −/+ 步进器 */
+    /** 数值范围：渲染为下方滑条，标题行右侧显示「当前值 + [unit]」 */
     data class IntRange(
         override val key: String,
         override val title: String,
@@ -42,6 +73,10 @@ sealed interface HookParam {
         val min: Int,
         val max: Int,
         val step: Int = 1,
+        /** 显示后缀，如 `" dp"` / `" ms"` / `" KB/s"`；空串表示纯数字 */
+        val unit: String = "",
+        override val group: String = "",
+        override val dependsOn: String = "",
     ) : HookParam
 
     /**
@@ -57,6 +92,8 @@ sealed interface HookParam {
         override val default: Int = 0,
         val options: List<Option>,
         val separator: String = "|",
+        override val group: String = "",
+        override val dependsOn: String = "",
     ) : HookParam {
         data class Option(val value: String, val label: String)
     }
@@ -71,6 +108,8 @@ sealed interface HookParam {
         override val title: String = "卡片排序",
         override val summary: String = "长按拖动调整控制中心各卡片的位置",
         override val default: Int = 0,
+        override val group: String = "",
+        override val dependsOn: String = "",
     ) : HookParam
 
     /**
@@ -86,6 +125,8 @@ sealed interface HookParam {
         override val title: String = "参数",
         override val summary: String = "在独立页面里调整全部参数",
         override val default: Int = 0,
+        override val group: String = "",
+        override val dependsOn: String = "",
     ) : HookParam
 }
 
