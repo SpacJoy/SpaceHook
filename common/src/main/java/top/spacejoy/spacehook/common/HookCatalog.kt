@@ -72,7 +72,6 @@ object HookCatalog {
         HookParam.Select.Option(2, "电流"),
         HookParam.Select.Option(3, "CPU 温度"),
         HookParam.Select.Option(4, "电池温度"),
-        HookParam.Select.Option(5, "网速"),
     )
 
     val hooks: List<HookMeta> = listOf(
@@ -270,7 +269,7 @@ object HookCatalog {
             id = "status_bar_meter",
             name = "状态栏功耗/温度仪表",
             description = "接管状态栏「实时网速」的显示位置，改为显示所选指标：电池功耗（W）、电流（mA）、" +
-                "CPU 温度、电池温度、实时网速。最多 4 项，可单行或双行排布，字号与粗细可调。",
+                "CPU 温度、电池温度。最多 4 项，可单行或双行排布，字号与粗细可调。",
             targetPackages = listOf("com.android.systemui"),
             category = HookCategory.STATUS_BAR,
             defaultEnabled = false,
@@ -326,7 +325,7 @@ object HookCatalog {
                 HookParam.IntRange(
                     key = "decimals",
                     title = "小数位数",
-                    summary = "功耗 / 电流 / 网速保留的小数位（温度固定：CPU 取整、电池一位）",
+                    summary = "功耗 / 电流保留的小数位（温度固定：CPU 取整、电池一位）",
                     default = 1,
                     min = 0,
                     max = 2,
@@ -363,6 +362,71 @@ object HookCatalog {
                     key = "refresh_ms",
                     title = "刷新间隔",
                     summary = "仪表自行刷新的周期（毫秒）",
+                    default = 1000,
+                    min = 500,
+                    max = 5000,
+                    step = 500,
+                ),
+            ),
+        ),
+        HookMeta(
+            id = "status_bar_speed",
+            name = "状态栏实时网速",
+            description = "接管状态栏「实时网速」的显示位置，按自定义格式显示实时收发总速率（KB/s、MB/s 自动切换）。" +
+                "与「状态栏功耗/温度仪表」同时开启时合并显示，排布与字号以仪表为准。",
+            targetPackages = listOf("com.android.systemui"),
+            category = HookCategory.STATUS_BAR,
+            defaultEnabled = false,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.android.systemui.statusbar.policy.NetworkSpeedController#updateText(String[])（文本接管）",
+                "com.android.systemui.statusbar.policy.NetworkSpeedController#-\$\$Nest\$mupdateVisibility(...,String)（强制可见）",
+                "com.android.systemui.statusbar.views.NetworkSpeedView#setNetworkSpeed(String,String)",
+                "com.android.systemui.statusbar.views.NetworkSpeedView#onFinishInflate()（缓存视图）",
+            ),
+            params = listOf(
+                // 与功耗/温度仪表共用一套独立整屏配置页
+                HookParam.FullPage(),
+                HookParam.IntRange(
+                    key = "decimals",
+                    title = "小数位数",
+                    summary = "速率保留的小数位",
+                    default = 1,
+                    min = 0,
+                    max = 2,
+                ),
+                HookParam.Select(
+                    key = "hide_unit",
+                    title = "单位",
+                    summary = "是否隐藏 KB/s、MB/s 后缀",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "显示"),
+                        HookParam.Select.Option(1, "隐藏"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "bold",
+                    title = "字体粗细",
+                    summary = "「跟随系统」保持原生网速的字重不变",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "跟随系统"),
+                        HookParam.Select.Option(1, "加粗"),
+                    ),
+                ),
+                HookParam.IntRange(
+                    key = "font_size_sp",
+                    title = "字号",
+                    summary = "0 = 跟随系统；大于 0 时强制字号（sp）",
+                    default = 0,
+                    min = 0,
+                    max = 24,
+                ),
+                HookParam.IntRange(
+                    key = "refresh_ms",
+                    title = "刷新间隔",
+                    summary = "网速自行刷新的周期（毫秒）",
                     default = 1000,
                     min = 500,
                     max = 5000,

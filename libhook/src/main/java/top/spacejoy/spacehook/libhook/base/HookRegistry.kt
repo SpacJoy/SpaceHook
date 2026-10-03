@@ -9,6 +9,7 @@ import top.spacejoy.spacehook.libhook.rules.systemui.ControlCenterOrderHook
 import top.spacejoy.spacehook.libhook.rules.systemui.DeviceCenterSizeHook
 import top.spacejoy.spacehook.libhook.rules.systemui.LockColonHook
 import top.spacejoy.spacehook.libhook.rules.systemui.StatusBarMeterHook
+import top.spacejoy.spacehook.libhook.rules.systemui.StatusBarSpeedHook
 
 /**
  * Hook 实现注册表 —— id 与实现类的唯一映射。
@@ -28,6 +29,7 @@ object HookRegistry {
         "cc_card_order" to { ControlCenterOrderHook() },
         "cc_card_tiles" to { CardStyleTilesHook() },
         "status_bar_meter" to { StatusBarMeterHook() },
+        "status_bar_speed" to { StatusBarSpeedHook() },
 
         // ===== 录音机 =====
         "disable_list_autoplay" to { DisableListAutoPlayHook() },

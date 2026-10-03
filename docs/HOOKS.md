@@ -1,6 +1,6 @@
 # Hook 功能清单与 hook 点定位表
 
-> **复核状态**：9 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-04）。
+> **复核状态**：10 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-04）。
 > 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译
 > （jadx-ai-mcp 插件已弃用；jadx-GUI 不再打开，all.jar 仅 CLI 模式）；
 > 抖音（55 个 dex）改用 `dexdump`（build-tools 36.1.0）按 class_defs 逐类验证。
@@ -19,7 +19,8 @@
 | `adb_stay_awake` | AOSP Framework（system_server） | 无需反编译 | ✅ 移植自 AdbStayAwake（libxposed API 102 同源） |
 | `cc_card_order` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSControlCenterList`，8 个控制器 `getPriority` |
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
-| `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`；⚠️ 待真机验证（当前无设备） |
+| `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
+| `status_bar_speed` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 同显示位独立网速开关，真机已验证（与仪表合并显示） |
 
 ---
 
@@ -478,16 +479,19 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 
 | 项 | 值 |
 |---|---|
-| 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt` + `.../rules/systemui/meter/MeterReader.kt` |
+| 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt`（配置 + 贡献者）、`.../systemui/meter/StatusBarMeterHookBase.kt`（hook 点与视图，与 §10 共用）、`.../meter/StatusBarMeterState.kt`（合并渲染）、`.../meter/MeterReader.kt`（数据源） |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 4 个槽位 `Select` + 排布 `Select` + 小数位 / 单位 / 粗细 / 字号 / 刷新间隔 |
+| 参数 | 4 个槽位 `Select`（功耗 / 电流 / CPU 温度 / 电池温度）+ 排布 `Select` + 小数位 / 单位 / 粗细 / 字号 / 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`），形态同「控制中心卡片排序」 |
 | 默认 | **关闭**（`defaultEnabled = false`）；开启后默认 = 功耗 + 电池温度、双行排布 |
 
 ### 功能语义
 
 接管状态栏「实时网速」的显示位置，改为显示所选指标：功耗（W）、电流（mA）、
-CPU 温度、电池温度、实时网速。最多 4 项，可单行 / 双行排布。
+CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
+
+> 网速已拆成独立的 `status_bar_speed`（见 §10）—— 两者共用同一个原生显示位，
+> 同时开启时按「仪表在前、网速在后」合并成单行 / 双行文本。
 
 ### 为什么要「接管」而不是自己插布局
 
@@ -524,6 +528,13 @@ CPU 温度、电池温度、实时网速。最多 4 项，可单行 / 双行排�
 5. **原生只在网速变化时推送**，功耗 / 温度会「冻住」，因此仪表自带主线程 Handler
    定时刷新（间隔可配，默认 1000ms）；状态栏重建后 `WeakReference` 失效即自动停机，
    等新视图的 `onFinishInflate` 再启动。
+6. **thermal 节点里混着大量阈值节点，必须黑名单剔除**。本机 96 个 `thermal_zone` 中
+   `cpu-hw-trip-0` / `cpu-hw-trip-1` 恒为 `95000`（95℃ 是**触发阈值**，不是温度）、
+   `sdr0` / `sdr0_pa` 恒为 `-273000`、`*-bcl-lvl*` / `*-ibat-lvl*` 恒为 `0` 或负值。
+   早先实现按「`type` 含 `cpu`」顺序取第一个命中节点并缓存路径 → 撞上 `cpu-hw-trip-0`
+   就**永远卡在 95℃**（`File.listFiles()` 顺序不保证，属必然踩中）。现在改为
+   「黑名单（`trip`/`lvl`/`limit`/`ibat`/`bcl`/`sdr`/`vsense`/`virtual`/`dummy`）
+   + 按 zone 序号排序 + 组内取最高 + 1 ~ 150℃ 范围校验」，本机读到 44 ~ 61℃ 的真实核心温度。
 
 ### 数据源（全部只读，无 MIUI 私有 API）
 
@@ -532,7 +543,7 @@ CPU 温度、电池温度、实时网速。最多 4 项，可单行 / 双行排�
 | 功耗 | `/sys/class/power_supply/{battery,bms,Battery,…}/current_now` × `voltage_now` | `P = V×A`（µV × µA ÷ 1e12），取绝对值 |
 | 电流 | 同 `current_now` | `|µA| / 1000` → mA |
 | 电压兜底 | 电池广播 `"voltage"` | mV ÷ 1000 |
-| CPU 温度 | `/sys/class/thermal/thermal_zone*/type` 含 `cpu`（次选 `soc`/`ap`/`gpu`）→ 同目录 `temp` | 原始值 > 1000 视为毫摄氏度 |
+| CPU 温度 | 扫 `/sys/class/thermal/thermal_zone*/type`，**先黑名单剔除阈值节点**，再按 `cpu` → `soc` → `ap` → `gpu` 分组，组内取最高值 | 原始值 > 1000 视为毫摄氏度；只接受 1 ~ 150℃ |
 | 电池温度 | 电池广播 `"temperature"` | 十分之一摄氏度 ÷ 10 |
 | 网速 | `TrafficStats.getTotalRxBytes() + getTotalTxBytes()` 差分 | ÷ 间隔 → B/s，≥1024 KB/s 转 MB/s |
 
@@ -540,7 +551,48 @@ CPU 温度、电池温度、实时网速。最多 4 项，可单行 / 双行排�
 
 ---
 
-## 10. 新增 Hook 的模板
+## 10. status_bar_speed —— 状态栏实时网速 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/systemui/StatusBarSpeedHook.kt`（配置 + 贡献者）+ 共用 `meter/StatusBarMeterHookBase.kt`、`meter/StatusBarMeterState.kt`、`meter/MeterReader.kt` |
+| 目标进程 | `com.android.systemui`（主 APK，非插件） |
+| 参数 | 小数位 / 单位 / 粗细 / 字号 / 刷新间隔（固定单行） |
+| 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`） |
+| 默认 | **关闭**（`defaultEnabled = false`） |
+
+### 功能语义
+
+显示实时网速：`TrafficStats` 收发总量差分 ÷ 间隔 → B/s，按 KB/s 显示，
+≥ 1024 KB/s 自动转 MB/s。
+
+### 为什么和 `status_bar_meter` 分成两个 Hook
+
+原生**只有一个**网速显示位。两个功能想各自独立开关、独立调参数，就必须共用这个位，
+所以显示引擎（hook 点安装、视图缓存、定时刷新、字体样式）抽到 `StatusBarMeterHookBase`，
+两个 Hook 各自只提供一个「文本贡献者」（`StatusBarMeterState.Contributor`）：
+
+| | `status_bar_meter` | `status_bar_speed` |
+|---|---|---|
+| `order` | 0（排在前） | 10（排在后） |
+| 渲染 | 4 槽位任选指标 | 单个网速值 |
+| 刷新间隔 | 自己配 | 自己配（实际取两者最小值） |
+| 字体样式 | 自己配 | 自己配（以 `order` 最小者为准） |
+
+合并规则在 `StatusBarMeterState.compose()`：按 `order` 升序拼各贡献者的片段；
+双行 = 第一段进「数字」TextView、其余进「单位」TextView；单行 = 全部拼进数字框、
+单位框留空。两者都关 → 返回 `null`，文本链路 `chain.proceed()` 交还原生行为。
+
+### 关键坑
+
+1. **hook 点只能装一次**：两个 Hook 都会走 `onHook()`，靠
+   `StatusBarMeterState.claimInstaller()` 保证只装一遍（后到的只注册贡献者）。
+2. 其余坑同 §9（`-$$Nest$mupdateVisibility` 钉字段、改参必须 `proceed(Object[])`、
+   定时器里先 `setVisibilityByController(true)` 再写文本）。
+
+---
+
+## 11. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx

@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（新增「整屏参数页」`HookParamsScreen`：`status_bar_meter` 的参数编辑改为独立整页）
+> 最后更新：2026-10-04（网速拆分为独立 Hook `status_bar_speed`；修复 CPU 温度恒 95℃）
 
 ---
 
@@ -24,8 +24,9 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
-| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ⚠️ 待复验 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度 / 网速（最多 4 槽，单行或双行）。真机已装载（SystemUI 内 `匹配到 5 个 Hook` + `Hook 装载成功`），但首轮日志暴露 `updateText(String[])` 参数个数错误（已修 `c9d6101`）；修复后的显示效果待复核 |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修 |
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
+| 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并 |
 
 ---
 
@@ -343,6 +344,40 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（网速拆分为独立 Hook `status_bar_speed`）
+
+- **需求**（用户原话）："1.分开网速和功耗设置，像其他模块一样分开设置"。
+- **难点**：原生状态栏**只有一个**网速显示位。两个功能要各自独立开关、独立调参，
+  就必须共用这一个位，不能各自插布局。
+- **做法**：把显示引擎从 `StatusBarMeterHook.kt` 抽成三层 ——
+  - `meter/StatusBarMeterHookBase.kt`（新增，`internal abstract`）：hook 点安装
+    （`updateText` / `-$$Nest$mupdateVisibility` / `setNetworkSpeed` / `onFinishInflate` /
+    文字外观刷新）、视图缓存、主线程定时器、字体样式；子类只实现 `createContributor()`。
+  - `meter/StatusBarMeterState.kt`（新增）：`Contributor` 接口（`order` / `layout` /
+    `bold` / `fontSizeSp` / `refreshMs` / `render(reader)`）+ `compose()` 合并渲染：
+    按 `order` 升序拼接，双行 = 第一段进数字框、其余进单位框，单行 = 全部进数字框；
+    两者都关 → `null` → 交还原生行为。
+  - `StatusBarMeterHook.kt`（瘦身）→ 只提供 4 槽位贡献者（`order = 0`）；
+    `StatusBarSpeedHook.kt`（新增）→ 只提供网速贡献者（`order = 10`，固定单行）。
+- **hook 点只装一次**：靠 `StatusBarMeterState.claimInstaller()`，后到的 Hook 只注册贡献者。
+- **参数**：`METER_SLOT_OPTIONS` 去掉「网速」项；新增 `status_bar_speed` 的 `HookMeta`
+  （小数位 / 单位 / 粗细 / 字号 / 刷新间隔，走整屏参数页）+ `HookRegistry` 映射。
+- **构建**：`BUILD SUCCESSFUL in 34s`；装机后日志 `分发完成：成功 5 / 共 6`
+  （`status_bar_speed` 未开启 → `status_bar_speed 已关闭，跳过`）。
+
+### 2026-10-04（修复 `status_bar_meter` CPU 温度恒 95℃）
+
+- **现象**（用户原话）："CPU功耗有bug，一直显示95度不变"。
+- **根因**：`/sys/class/thermal` 下 96 个 `thermal_zone` 里混着**阈值节点** ——
+  `cpu-hw-trip-0` / `cpu-hw-trip-1` 恒为 `95000`（95℃ 是触发阈值，不是温度）、
+  `sdr0` / `sdr0_pa` 恒为 `-273000`、`*-bcl-lvl*` / `*-ibat-lvl*` 恒为 0 或负值。
+  旧实现「按 `type` 含 `cpu` 取第一个命中节点并缓存路径」，而 `File.listFiles()` 顺序不保证，
+  撞上 `cpu-hw-trip-0` 就永远读 95℃。
+- **修复**：改为「黑名单剔除（`trip`/`lvl`/`limit`/`ibat`/`bcl`/`sdr`/`vsense`/`virtual`/`dummy`）
+  + 按 zone 序号排序 + 按 `cpu`→`soc`→`ap`→`gpu` 分组 + 组内取最高 + 1 ~ 150℃ 范围校验」。
+- **验证**：把同一套算法在设备上复算 → 命中 `cpu-0-5-1 = 44℃`（该时刻真实核心温度 44 ~ 61℃），
+  不再命中任何 `trip` 节点。
 
 ### 2026-10-04（`status_bar_meter` 参数编辑改为独立整屏页：`HookParamsScreen`）
 
