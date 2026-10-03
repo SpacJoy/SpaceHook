@@ -328,8 +328,11 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      * 列序固定「网速在左、仪表在右」：整块左边距取网速的左空隙，整块右边距取仪表的右空隙，
      * 两列间距 = 网速的右空隙 + 仪表的左空隙 + 内置的 [COLUMN_GAP_DP]（保证默认观感不变）。
      *
-     * 图标容器比文本宽，内容左对齐就在右侧空出一大截（实测容器 380px、文本 183px）；
-     * 让承载视图撑满容器、内容靠右，文本就贴到电池图标那一侧。
+     * **承载视图必须保持 `WRAP_CONTENT`**：原生 XML 和 `IconManager.onCreateLayoutParams` 给的都是 wrap。
+     * `MiuiStatusIconContainer.onLayout` 用 `x = 右内容边 - getNetworkSpeedWidth()` 摆放子视图，而
+     * `getNetworkSpeedWidth()` 有内容时直接返回 `getWidth()`。一旦撑成 `MATCH_PARENT`，视图先被摆到
+     * 容器左边界、再被重新测量摆回右侧 —— 这就是「靠右侧闪烁」；同时内容左对齐会把右边空出一大片，
+     * 就是「右侧空隙太大」。空隙改用视图自身的 `paddingStart` / `paddingEnd` 表达，视图跟着内容走。
      *
      * **不放进 `writeText`**：那条路会被原生的 `setNetworkSpeed` / `updateNetworkSpeed$1`
      * 从布局过程中调进来，在那里改 `layoutParams` / `padding` 等于在布局期 `requestLayout`。
@@ -360,14 +363,13 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             unit.layoutParams = unitParams
         }
 
-        val row = number.parent as? LinearLayout ?: return
-        val want = Gravity.END or Gravity.CENTER_VERTICAL
-        if (row.gravity != want) row.gravity = want
         val params = view.layoutParams ?: return
-        if (params.width == ViewGroup.LayoutParams.MATCH_PARENT) return
-        params.width = ViewGroup.LayoutParams.MATCH_PARENT
-        if (params is LinearLayout.LayoutParams) params.weight = 0f
-        view.layoutParams = params
+        if (params.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
+            params.width = ViewGroup.LayoutParams.WRAP_CONTENT
+            (params as? LinearLayout.LayoutParams)?.weight = 0f
+            view.layoutParams = params
+            log("承载视图归位: width=WRAP_CONTENT")
+        }
     }
 
     /**
