@@ -481,6 +481,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 | 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt` + `.../rules/systemui/meter/MeterReader.kt` |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
 | 参数 | 4 个槽位 `Select` + 排布 `Select` + 小数位 / 单位 / 粗细 / 字号 / 刷新间隔 |
+| 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`），形态同「控制中心卡片排序」 |
 | 默认 | **关闭**（`defaultEnabled = false`）；开启后默认 = 功耗 + 电池温度、双行排布 |
 
 ### 功能语义

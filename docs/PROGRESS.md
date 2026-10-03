@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（新增「状态栏功耗/温度仪表」Hook：`status_bar_meter`）
+> 最后更新：2026-10-04（新增「整屏参数页」`HookParamsScreen`：`status_bar_meter` 的参数编辑改为独立整页）
 
 ---
 
@@ -24,7 +24,8 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
-| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ⚠️ 待真机验证 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度 / 网速（最多 4 槽，单行或双行）；构建通过，**当前无设备连接**，装机验证待办 |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ⚠️ 待复验 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度 / 网速（最多 4 槽，单行或双行）。真机已装载（SystemUI 内 `匹配到 5 个 Hook` + `Hook 装载成功`），但首轮日志暴露 `updateText(String[])` 参数个数错误（已修 `c9d6101`）；修复后的显示效果待复核 |
+| 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
 
 ---
 
@@ -341,6 +342,38 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（`status_bar_meter` 参数编辑改为独立整屏页：`HookParamsScreen`）
+
+- **需求**（用户原话）："调整UI改为类似 控制中心卡片排序 的单独一页"。
+  此前 `status_bar_meter` 的 10 个参数挤在 `HookListScreen` 的内联 `OverlayDialog` 里滚动，
+  与「控制中心卡片排序」（`CardOrderScreen`）那种独立整页形态不一致。
+- **做法**：不写死 UI，而是新增一个通用标记 + 通用页面 ——
+  - `HookParam.FullPage`（`common/.../HookParam.kt`）：无字段的数据类，仅作「本 Hook 走整屏参数页」的信号；
+  - `HookParamsScreen`（`app/.../ui/screens/HookParamsScreen.kt`，新增）：
+    逐项一行的参数列表，左侧标题 + 说明、右侧当前取值 + 展开箭头；
+    点按展开**竖直候选列表**（带 ✓ 标记）—— 6 项以上的候选在窄屏上横排芯片会溢出，故改竖直；
+    数值参数用 −/＋ 步进器就地调整；底部「恢复默认」（一次重置本 Hook 全部参数）+「重启目标应用生效」。
+  - 参数声明仍来自 `HookMeta.params`，页面只负责渲染与读写 `cfg::<hookId>::<key>`，**新增参数不需要动这个文件**。
+- **接线**：
+  - `HookListScreen.kt`：`opensScreen` 增补 `hasFullPage`（与 `hasCardOrder` / `hasMultiSelect` 并列，
+    点按整行进整屏页）；提示文案加一档「⚙ 点按进入参数页」；`HookParamsDialog` 的
+    `simpleParams` 过滤掉 `FullPage`（避免同一批参数在两处渲染）。
+  - `SpaceHookNavHost.kt`：`Route.HookConfig` 分支改为三分支 ——
+    `CardOrder` → `CardOrderScreen`、`FullPage` → `HookParamsScreen`、其余 → `TilePickerScreen`。
+- **登记**：`HookCatalog` 的 `status_bar_meter` 参数表首位加 `HookParam.FullPage()`。
+- **构建**：`BUILD SUCCESSFUL in 54s`。
+
+### 2026-10-04（修复 `status_bar_meter` 的 `updateText` 参数个数错误）
+
+- **真机日志暴露**（`/data/adb/lspd/log/modules_*.log`，SystemUI 每约 4 秒一次）：
+  `replace 回调异常：NetworkSpeedController#updateText` →
+  `java.lang.IllegalArgumentException: Wrong number of arguments; expected 1, got 2`。
+- **根因**：`updateText(String[] strArr)` 只吃**一个** `String[]`，而实现按 `setNetworkSpeed(String, String)`
+  的形态传了两个 `String`。修复为 `chain.proceed(arrayOf<Any?>(arrayOf(text.first, text.second)))`。
+- **附带确认**：真机装载链路本身是通的 —— `匹配到 5 个 Hook：lock_colon, device_center_size, cc_card_order,
+  cc_card_tiles, status_bar_meter`、`[status_bar_meter] Hook 装载成功 @ com.android.systemui`、
+  `分发完成：成功 5 / 共 5`。
 
 ### 2026-10-04（新增「状态栏功耗/温度仪表」Hook：`status_bar_meter`）
 

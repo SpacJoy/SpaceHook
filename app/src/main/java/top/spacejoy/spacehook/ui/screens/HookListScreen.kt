@@ -485,8 +485,9 @@ private fun HookRow(
     val hasParams = hook.params.isNotEmpty()
     val hasCardOrder = hook.params.any { it is HookParam.CardOrder }
     val hasMultiSelect = hook.params.any { it is HookParam.MultiSelect }
-    // 走独立页面：拖拽排序、磁贴多选等「页面型」参数
-    val opensScreen = hasCardOrder || hasMultiSelect
+    val hasFullPage = hook.params.any { it is HookParam.FullPage }
+    // 走独立整屏页：拖拽排序、磁贴多选、整屏参数页
+    val opensScreen = hasCardOrder || hasMultiSelect || hasFullPage
 
     if (showParams) {
         HookParamsDialog(hook = hook, onDismiss = { showParams = false })
@@ -527,6 +528,7 @@ private fun HookRow(
                         text = when {
                             hasCardOrder -> "⚙ 点按进入拖拽排序"
                             hasMultiSelect -> "⚙ 点按进入磁贴选择"
+                            hasFullPage -> "⚙ 点按进入参数页"
                             else -> "⚙ 点按调整参数"
                         },
                         style = MiuixTheme.textStyles.footnote2,
@@ -553,7 +555,9 @@ private fun HookRow(
 
 @Composable
 private fun HookParamsDialog(hook: HookMeta, onDismiss: () -> Unit) {
-    val simpleParams = hook.params.filterNot { it is HookParam.CardOrder }
+    val simpleParams = hook.params.filterNot {
+        it is HookParam.CardOrder || it is HookParam.FullPage
+    }
     OverlayDialog(
         title = "参数设置 · ${hook.name}",
         show = true,
@@ -566,6 +570,7 @@ private fun HookParamsDialog(hook: HookMeta, onDismiss: () -> Unit) {
                     is HookParam.IntRange -> RangeParamRow(hook.id, param)
                     is HookParam.MultiSelect -> MultiSelectParamRow(hook.id, param)
                     is HookParam.CardOrder -> Unit
+                    is HookParam.FullPage -> Unit
                 }
             }
             Spacer(Modifier.height(12.dp))

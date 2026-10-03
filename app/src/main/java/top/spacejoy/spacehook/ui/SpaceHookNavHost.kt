@@ -18,6 +18,7 @@ import top.spacejoy.spacehook.common.HookCatalog
 import top.spacejoy.spacehook.common.HookParam
 import top.spacejoy.spacehook.ui.screens.BatchRestartDialog
 import top.spacejoy.spacehook.ui.screens.CardOrderScreen
+import top.spacejoy.spacehook.ui.screens.HookParamsScreen
 import top.spacejoy.spacehook.ui.screens.TilePickerScreen
 import top.spacejoy.spacehook.ui.screens.UserAppsScreen
 import top.yukonga.miuix.kmp.basic.Icon
@@ -131,6 +132,7 @@ fun SpaceHookNavHost() {
                 ) {
                     when {
                         hook.params.any { it is HookParam.CardOrder } -> CardOrderScreen(hook = hook)
+                        hook.params.any { it is HookParam.FullPage } -> HookParamsScreen(hook = hook)
                         else -> TilePickerScreen(hook = hook)
                     }
                 }

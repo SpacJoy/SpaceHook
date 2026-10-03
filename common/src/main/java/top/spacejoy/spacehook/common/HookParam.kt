@@ -72,6 +72,21 @@ sealed interface HookParam {
         override val summary: String = "长按拖动调整控制中心各卡片的位置",
         override val default: Int = 0,
     ) : HookParam
+
+    /**
+     * 整屏参数页标记：带此参数的 Hook 点按后进入**独立整屏配置页**
+     * （[top.spacejoy.spacehook.ui.screens.HookParamsScreen]），
+     * 而不是列表里的内联参数对话框。
+     *
+     * 适用于参数较多、需要更大展示空间的 Hook（如状态栏仪表的槽位配置）。
+     * 自身不存储任何值，仅作路由标记 —— 与 [CardOrder] 同理。
+     */
+    data class FullPage(
+        override val key: String = "page",
+        override val title: String = "参数",
+        override val summary: String = "在独立页面里调整全部参数",
+        override val default: Int = 0,
+    ) : HookParam
 }
 
 /**

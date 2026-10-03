@@ -283,6 +283,8 @@ object HookCatalog {
                 "com.android.systemui.statusbar.views.NetworkSpeedView#onDensityOrFontScaleChanged() / onMiuiThemeChanged(boolean)（样式复套）",
             ),
             params = listOf(
+                // 参数较多（4 槽位 + 5 项显示设置），走独立整屏配置页
+                HookParam.FullPage(),
                 HookParam.Select(
                     key = "slot1",
                     title = "第 1 项",
