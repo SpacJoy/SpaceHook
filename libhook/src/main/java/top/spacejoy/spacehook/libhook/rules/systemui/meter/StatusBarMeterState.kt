@@ -12,7 +12,9 @@ import java.lang.ref.WeakReference
  *
  * 组装规则：
  * - 单行：所有片段按 [Contributor.order] 升序用空格连成一行，放进「数字」文本框
- * - 双行：第 1 段占第一行，其余占第二行
+ * - 左右双列：按 [Contributor.column] 分栏——仪表恒在左列、网速恒在右列，
+ *   列内按 order / 槽位顺序排列，每列各自均衡切成 1–2 行。
+ *   **分栏与「开了几个槽位」无关**，只有网速在时它照样在右列。
  * - 排布 / 字号 / 粗细 / 刷新间隔以 order 最小的贡献者为准（功耗仪表优先）
  */
 internal object StatusBarMeterState {
@@ -27,6 +29,9 @@ internal object StatusBarMeterState {
     interface Contributor {
         /** 排序权重，小的排前面（功耗仪表 0、实时网速 10） */
         val order: Int
+
+        /** 落在哪一列：[COLUMN_LEFT]（默认，仪表）/ [COLUMN_RIGHT]（网速） */
+        val column: Int get() = COLUMN_LEFT
 
         /** 单行 [LAYOUT_SINGLE] / 双行 [LAYOUT_DUAL] */
         val layout: Int get() = LAYOUT_DUAL
@@ -59,6 +64,9 @@ internal object StatusBarMeterState {
 
     const val LAYOUT_SINGLE = 0
     const val LAYOUT_DUAL = 1
+
+    const val COLUMN_LEFT = 0
+    const val COLUMN_RIGHT = 1
 
     const val FONT_DEFAULT = 0
     const val FONT_LIGHT = 1
@@ -139,8 +147,8 @@ internal object StatusBarMeterState {
     @Synchronized
     fun compose(): Pair<String, String>? {
         val source = reader ?: return null
-        // 按贡献者分组：仪表一组、网速一组，组内保持槽位顺序
-        val groups = ArrayList<List<String>>(2)
+        // 按列分组：左列（仪表）、右列（网速），列内保持槽位顺序
+        val columns = arrayOf(ArrayList<String>(5), ArrayList<String>(3))
         val parts = ArrayList<String>(5)
         for (contributor in contributors.values.sortedBy { it.order }) {
             val rendered = try {
@@ -150,19 +158,18 @@ internal object StatusBarMeterState {
             }
             val kept = rendered.filter { it.isNotEmpty() }
             if (kept.isNotEmpty()) {
-                groups.add(kept)
+                columns[if (contributor.column == COLUMN_RIGHT) 1 else 0].addAll(kept)
                 parts.addAll(kept)
             }
         }
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        // 左右双列：左列 = 仪表（功耗/电流/温度），右列 = 网速（下行/上行），两列各自可占两行。
+        // 左右双列：仪表恒在左列（功耗/电流/温度），网速恒在右列（下行/上行），
+        // 每列各自均衡切行。分栏与「开了几个槽位」无关。
         // 单行：全部挤进「数字」框，右列留空。
-        val result = if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
-            val rows = if (groups.any { it.size > COLUMN_MAX_PARTS_PER_ROW }) 2 else 1
-            column(groups.getOrNull(0).orEmpty(), rows) to
-                column(groups.drop(1).flatten(), rows)
+        val result = if (primary()?.layout == LAYOUT_DUAL) {
+            column(columns[0]) to column(columns[1])
         } else {
             parts.joinToString(" ") to ""
         }
@@ -174,18 +181,15 @@ internal object StatusBarMeterState {
     }
 
     /**
-     * 把一组片段排成一列：[rows] 行时均衡切分（4 段 → 2+2，3 段 → 2+1），行间换行。
-     * 单行时全部用空格连起来。
+     * 把一列片段排成 1–2 行：2 段以上就均衡切分（4 段 → 2+2，3 段 → 2+1），行间换行。
+     * 只有 1 段就保持单行——免得留下空的第二行。
      */
-    private fun column(list: List<String>, rows: Int): String {
+    private fun column(list: List<String>): String {
         if (list.isEmpty()) return ""
-        if (rows <= 1) return list.joinToString(" ")
+        if (list.size <= 1) return list.joinToString(" ")
         val half = (list.size + 1) / 2
         return list.take(half).joinToString(" ") + "\n" + list.drop(half).joinToString(" ")
     }
 
     private const val DEFAULT_REFRESH_MS = 1000
-
-    /** 单列里一行最多放几段；超过就分两行 */
-    private const val COLUMN_MAX_PARTS_PER_ROW = 2
 }
