@@ -176,13 +176,44 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             // 原生往哪个视图推文本，就把哪个视图补进登记表。
             // 状态栏那个实例通常在模块加载之前就 inflate 完了，onFinishInflate 拦不到它，
             // 只有这里能兜住——否则它会一直冻在旧文本上，而且永远不会被定时器刷新。
-            (chain.thisObject as? View)?.let {
-                StatusBarMeterState.addView(it)
-                dumpChain(it)
+            val view = chain.thisObject as? View
+            if (view != null) {
+                StatusBarMeterState.addView(view)
+                dumpChain(view)
             }
             val text = StatusBarMeterState.compose()
-            if (text == null) chain.proceed()
-            else chain.proceed(arrayOf<Any?>(text.first, text.second))
+            if (text == null || view == null) {
+                chain.proceed()
+            } else {
+                // 不 proceed：原生体会把两个参数存进 mNetworkSpeedNumber / mNetworkSpeedUnit，
+                // 随后 updateNetworkSpeed$1() 就拿它们把文本覆盖回去。
+                writeText(view, text)
+                null
+            }
+        }
+
+        // 原生真正写文本的地方。updateVisibility() 每次控制器刷新都会调它，
+        // 用 mNetworkSpeedNumber / mNetworkSpeedUnit 把两个框重写成「数字 + 单位」单行形态——
+        // 定时器刚写好的两行会在同一秒内被覆盖掉（实测屏幕上永远只有数字框那一行）。
+        // 这里整个换掉，改成写组装结果。
+        findMethod(clazz, METHOD_UPDATE_SPEED_TEXT)?.let { method ->
+            hookExecutable(method) { chain ->
+                val view = chain.thisObject as? View
+                val text = StatusBarMeterState.compose()
+                if (view == null || text == null) chain.proceed() else {
+                    writeText(view, text)
+                    null
+                }
+            }
+        }
+
+        // 原生这里会把 textAppearance 与 ±4.6/3.8dp 的错位重设回原生值，跑完再套一遍样式
+        findMethod(clazz, METHOD_UPDATE_RESOURCES)?.let { method ->
+            hookExecutable(method) { chain ->
+                val result = chain.proceed()
+                applyStyle(chain.thisObject)
+                result
+            }
         }
 
         for (name in STYLE_REFRESH_METHODS) {
@@ -253,16 +284,21 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             }
             return
         }
-        number.text = text.first
-        unit.text = text.second
+        applyLayout(view, StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL)
+        // 两行都塞进数字框：单位框在原生布局里根本画不出来（见 applyLayout 注释）
+        val body = if (text.second.isEmpty()) text.first else text.first + "\n" + text.second
+        if (number.text?.toString() != body) number.text = body
+        if (unit.text.isNotEmpty()) unit.text = ""
         if (writeDiagLeft > 0) {
             writeDiagLeft--
             logd(
                 "写入回读: #${System.identityHashCode(view)} id=${resId(view)} vis=${view.visibility}" +
-                    " 父=${view.parent?.javaClass?.simpleName}" +
-                    " 数字框[${number.text}] 单位框[${unit.text}]",
+                    " shown=${view.isShown} 父=${view.parent?.javaClass?.simpleName}" +
+                    " 行数=${number.maxLines} 文本[${number.text}]",
             )
         }
+        // 首次写入时视图一定已 attach，此时打来源链才有内容
+        dumpChain(view)
     }
 
     /**
@@ -346,22 +382,37 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     }
 
     /**
-     * 排布。
+     * 单行 / 双行的实际排布。
      *
-     * 原生本来就是**两行**：`updateResources$15()` 把数字框上移 4.6dp、单位框下移 3.8dp，
-     * 两个文本框各自居中叠在同一个 `FrameLayout` 里，靠这 8.4dp 的错位分成上下两行
-     * （字号 7.0dp / 6.4dp，半高之和 6.7dp < 8.4dp，正好不重叠）。
+     * 原生是「两个居中文本框 + 数字框 -4.6dp、单位框 +3.8dp 的 translationY 错位」凑出两行，
+     * 容器 `network_speed_container` 是 `wrap_content` 高，ViewGroup 默认 `clipChildren=true`。
+     * 原生字号（数字 7.0dp / 单位 6.4dp）时两个半高之和 6.7dp < 8.4dp 错位，正好不重叠也不越界。
      *
-     * 上一版这里把错位归零、又给两个框设 TOP / BOTTOM gravity —— 但容器是 `wrap_content`
-     * 高（只有一行高），TOP 和 BOTTOM 是同一个位置，结果两行叠死，只剩上面那个可见。
-     * 所以**双行什么都不用做**，保持原生错位即可；单行才要把错位归零让文本居中。
+     * 但单位框的位置是死的：它贴在容器下沿，字号一旦放大就越出容器下边界被裁掉。实测把它改成
+     * BOTTOM gravity、错位归零、容器撑到 MATCH_PARENT、`clipChildren=false`，**屏幕上依旧只有
+     * 数字框那一行**——`写入回读` 证明单位框里文本写进去了，`视图诊断` 证明 `lp=81 ty=0.0` 生效了，
+     * 就是不画。所以单位框放弃，两行都由数字框自己换行承担。
+     *
+     * 于是这里只做三件事：单位框清空、两个框的错位归零、按行数配好数字框的换行能力。
      */
     private fun applyLayout(view: View, dual: Boolean) {
-        if (dual) return
         val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
         val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
+        if (unit.text.isNotEmpty()) unit.text = ""
         if (number.translationY != 0f) number.translationY = 0f
         if (unit.translationY != 0f) unit.translationY = 0f
+
+        if (dual) {
+            if (number.isSingleLine) number.isSingleLine = false
+            if (number.maxLines != 2) number.maxLines = 2
+        } else {
+            if (!number.isSingleLine) number.isSingleLine = true
+            if (number.maxLines != 1) number.maxLines = 1
+        }
+
+        // 容器别裁：字号放大后文本可能超出容器高度
+        val container = number.parent as? ViewGroup
+        if (container != null && container.clipChildren) container.clipChildren = false
     }
 
     /** 一次性视图结构诊断：搞清原生到底怎么摆这两个文本框、一共几个实例 */
@@ -419,6 +470,12 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
 
         /** D8 合成的静态访问桥，dex 中的真实名字（Java 里非法，故 jadx 会改名） */
         const val NEST_UPDATE_VISIBILITY = "-\$\$Nest\$mupdateVisibility"
+
+        /** 原生唯一写文本的方法，`updateVisibility()` 每次刷新都调它 */
+        const val METHOD_UPDATE_SPEED_TEXT = "updateNetworkSpeed\$1"
+
+        /** 原生重设 textAppearance 与上下错位的方法 */
+        const val METHOD_UPDATE_RESOURCES = "updateResources\$15"
 
         const val FIELD_SHOW_NETWORK_SPEED = "mShowNetworkSpeed"
         const val FIELD_NETWORK_CONNECTED = "mNetworkConnected"

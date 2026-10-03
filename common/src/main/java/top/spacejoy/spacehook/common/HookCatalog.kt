@@ -387,6 +387,18 @@ object HookCatalog {
             params = listOf(
                 // 与功耗/温度仪表共用一套独立整屏配置页
                 HookParam.FullPage(),
+                HookParam.Select(
+                    key = "layout",
+                    title = "行数",
+                    summary = "单行 = 下行、上行排在同一行；双行 = 下行一行、上行一行。" +
+                        "与「功耗/温度仪表」同时开启时，两个 Hook 各占一行",
+                    default = -1,
+                    options = listOf(
+                        HookParam.Select.Option(-1, "跟随样式"),
+                        HookParam.Select.Option(0, "单行"),
+                        HookParam.Select.Option(1, "双行"),
+                    ),
+                ),
                 HookParam.IntRange(
                     key = "decimals",
                     title = "小数位数",

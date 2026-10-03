@@ -135,10 +135,12 @@ internal object StatusBarMeterState {
     @Synchronized
     fun refreshMs(): Int = contributors.values.minOfOrNull { it.refreshMs } ?: DEFAULT_REFRESH_MS
 
-    /** 组装当前要写进状态栏的文本（数字框, 单位框）；null = 交还原生行为 */
+    /** 组装当前要写进状态栏的文本（第一行, 第二行）；null = 交还原生行为 */
     @Synchronized
     fun compose(): Pair<String, String>? {
         val source = reader ?: return null
+        // 按贡献者分组：仪表一组、网速一组，组内保持槽位顺序
+        val groups = ArrayList<List<String>>(2)
         val parts = ArrayList<String>(5)
         for (contributor in contributors.values.sortedBy { it.order }) {
             val rendered = try {
@@ -146,16 +148,24 @@ internal object StatusBarMeterState {
             } catch (_: Throwable) {
                 emptyList()
             }
-            parts.addAll(rendered)
+            val kept = rendered.filter { it.isNotEmpty() }
+            if (kept.isNotEmpty()) {
+                groups.add(kept)
+                parts.addAll(kept)
+            }
         }
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        // 双行：片段对半分成两行（2 项 → 1+1，4 项 → 2+2）；
-        // 单行：全部挤进「数字」框，单位框留空。
+        // 双行：多个贡献者时各占一行（仪表一行、网速一行）；只有一个贡献者时
+        // 第 1 段独占第一行、其余排第二行（网速即「下行一行、上行一行」）。
+        // 单行：全部挤进「数字」框，第二行留空。
         val result = if (primary()?.layout == LAYOUT_DUAL && parts.size > 1) {
-            val half = (parts.size + 1) / 2
-            parts.take(half).joinToString(" ") to parts.drop(half).joinToString(" ")
+            if (groups.size > 1) {
+                groups[0].joinToString(" ") to groups.drop(1).flatten().joinToString(" ")
+            } else {
+                groups[0].first() to groups[0].drop(1).joinToString(" ")
+            }
         } else {
             parts.joinToString(" ") to ""
         }

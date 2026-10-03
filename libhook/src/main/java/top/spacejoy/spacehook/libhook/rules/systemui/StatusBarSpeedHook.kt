@@ -29,11 +29,28 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
             override val order: Int = ORDER
 
+            /**
+             * 单行 / 双行。
+             *
+             * 页面上的「行数」独立开关优先；没设过（[LAYOUT_FOLLOW_STYLE]）时按 [style] 推导——
+             * style 的 1 / 3 本来就是「值和单位双排」「上下行双排」，语义上就是双行。
+             *
+             * 双行的含义：单独显示时下行一行、上行一行；与功耗/温度仪表同时开启时，
+             * 仪表占第一行、网速占第二行（见 [StatusBarMeterState.compose]）。
+             */
             override val layout: Int
-                get() = if (style == STYLE_VALUE_UNIT_DUAL || style == STYLE_RX_TX_DUAL) {
-                    StatusBarMeterState.LAYOUT_DUAL
-                } else {
-                    StatusBarMeterState.LAYOUT_SINGLE
+                get() {
+                    val explicit = cfg("layout", LAYOUT_FOLLOW_STYLE)
+                    if (explicit == StatusBarMeterState.LAYOUT_SINGLE ||
+                        explicit == StatusBarMeterState.LAYOUT_DUAL
+                    ) {
+                        return explicit
+                    }
+                    return if (style == STYLE_VALUE_UNIT_DUAL || style == STYLE_RX_TX_DUAL) {
+                        StatusBarMeterState.LAYOUT_DUAL
+                    } else {
+                        StatusBarMeterState.LAYOUT_SINGLE
+                    }
                 }
 
             override val bold: Boolean get() = cfg("bold", OFF) == ON
@@ -130,6 +147,9 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
         const val STYLE_VALUE_UNIT_DUAL = 1
         const val STYLE_RX_TX_SINGLE = 2
         const val STYLE_RX_TX_DUAL = 3
+
+        /** 「行数」没设过，按 [style] 推导单行 / 双行 */
+        const val LAYOUT_FOLLOW_STYLE = -1
 
         /** 低速隐藏阈值默认值（KB/s） */
         const val DEFAULT_HIDE_SLOW_KB = 64
