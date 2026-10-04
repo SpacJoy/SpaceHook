@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（参数页形态回退 + 数值点数字手动输入 + 状态栏排布定稿 + 承载视图 WRAP_CONTENT）
+> 最后更新：2026-10-04（补齐状态栏两个 Hook 的「无 UI 参数」，仪表 20 项 / 网速 19 项）
 
 ---
 
@@ -346,6 +346,30 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（补齐状态栏两个 Hook 的「无 UI 参数」+ 合并重复的加粗开关）
+
+**背景**：文档审计时发现 hook 层有一批参数**只被读取、`HookCatalog` 里没有声明** ——
+UI 改不了、只能吃默认值，等于一批看不见的旋钮。其中网速的 `style`
+（DB 历史值 `3` = 上下行双排）至今仍在影响文本形状。
+
+**补上的 UI**
+
+- 仪表（+7 项）：`font_style` / `align` / `fixed_width` / `left_margin` / `right_margin` /
+  `vertical_offset` / `reverse_order` / `in_charge` / `temp_decimal`
+- 网速（+5 项）：`style` / `swap_places` / `hide` / `hide_slow` / `hide_all`
+- 仪表 `hide_unit` 从 2 档扩到 4 档（显示 / 全部隐藏 / 仅隐藏温度 / 仅隐藏功耗与电流）——
+  hook 层本来就支持 4 档，只是 UI 只给了 2 档
+
+**合并重复旋钮**：`bold`（跟随系统 / 加粗）与 `font_style = 加粗` 完全等效。
+删掉 `bold` 的目录项与 `Contributor.bold` 字段，`applyStyle` 的加粗判断简化为
+`font_style == FONT_BOLD`，**加粗只剩一个入口**。
+
+**参数总数**：仪表 13 → 20 项，网速 10 → 19 项。真机验证参数页正常渲染、无异常。
+
+**顺带澄清一对容易混的参数**（已写进 `HOOKS.md`）：
+`left_margin` / `right_margin` 是视图**外面**的 `layoutParams` 边距（与相邻图标的距离），
+`gap_left` / `gap_right` 是视图**内面**的 `setPadding`（框边到文字的留白）——两者不是一回事。
 
 ### 2026-10-04（参数页形态回退 + 数值手动输入 + 状态栏排布定稿 + 承载视图 WRAP_CONTENT）
 

@@ -36,12 +36,15 @@ internal object StatusBarMeterState {
         /** 单行 [LAYOUT_SINGLE] / 双行 [LAYOUT_DUAL] */
         val layout: Int get() = LAYOUT_DUAL
 
-        val bold: Boolean get() = false
-
         /** 0 = 跟随系统原生字号 */
         val fontSizeSp: Int get() = 0
 
-        /** [FONT_DEFAULT] / [FONT_LIGHT] / [FONT_BOLD] */
+        /**
+         * [FONT_DEFAULT] / [FONT_LIGHT] / [FONT_BOLD]。
+         *
+         * 加粗只有这一个入口——早先另有一个独立的 `bold` 开关，与 `FONT_BOLD` 完全等效，
+         * 已合并掉（2026-10-04）。
+         */
         val fontStyle: Int get() = FONT_DEFAULT
 
         /** [ALIGN_NATIVE] / [ALIGN_LEFT] / [ALIGN_CENTER] / [ALIGN_RIGHT] */

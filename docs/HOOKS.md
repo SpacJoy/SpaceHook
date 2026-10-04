@@ -481,7 +481,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 |---|---|
 | 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt`（配置 + 贡献者）、`.../systemui/meter/StatusBarMeterHookBase.kt`（hook 点与视图，与 §10 共用）、`.../meter/StatusBarMeterState.kt`（合并渲染）、`.../meter/MeterReader.kt`（数据源） |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 13 项（见「参数页形态」）：4 槽位 `Select` + 排布 / 数值格式 / 字体 / 空隙 + 刷新间隔 |
+| 参数 | 20 项（见「参数页形态」）：4 槽位 + 排布 / 数值格式 / 字体 / 对齐 / 宽度 / 边距 / 空隙 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`），形态同「控制中心卡片排序」 |
 | 默认 | **关闭**（`defaultEnabled = false`）；开启后默认 = 功耗 + 电池温度、双行排布 |
 
@@ -506,13 +506,24 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 |---|---|---|
 | `slot1` ~ `slot4` | `Select`：关闭 / 功耗 / 电流 / CPU 温度 / 电池温度 | 功耗 / 电池温度 / 关 / 关 |
 | `layout` | `Select`：单行 / 双行 | 双行 |
-| `decimals` | `IntRange` 0 ~ 2 | 1 |
-| `hide_unit` | `Select`：显示 / 隐藏 | 显示 |
-| `bold` | `Select`：跟随系统 / 加粗 | 跟随系统 |
+| `decimals` | `IntRange` 0 ~ 2（功耗 / 电流的小数位） | 1 |
+| `temp_decimal` | `Select`：取整 / 一位小数（温度的小数位） | 取整 |
+| `hide_unit` | `Select`：显示 / 全部隐藏 / 仅隐藏温度 / 仅隐藏功耗与电流 | 显示 |
+| `reverse_order` | `Select`：正序 / 反转 | 正序 |
+| `in_charge` | `Select`：始终显示 / 仅充电时 | 始终显示 |
+| `font_style` | `Select`：跟随系统 / 细体 / 加粗 | 跟随系统 |
 | `font_size_sp` | `IntRange` 0 ~ 24 sp（0 = 跟随系统） | 0 |
-| `gap_left` | `IntRange` 0 ~ 30 dp | 0 |
-| `gap_right` | `IntRange` 0 ~ 30 dp | 0 |
+| `align` | `Select`：保持原生 / 靠左 / 居中 / 靠右 | 保持原生 |
+| `fixed_width` | `IntRange` 0 ~ 120 dp（0 = 不干预） | 0 |
+| `left_margin` / `right_margin` | `IntRange` 0 ~ 16 dp（0 = 保持原生） | 0 |
+| `vertical_offset` | `IntRange` −20 ~ 20 dp（正值下移） | 0 |
+| `gap_left` / `gap_right` | `IntRange` 0 ~ 30 dp | 0 |
 | `refresh_ms` | `IntRange` 500 ~ 5000 ms | 1000 |
+
+**「外边距」和「空隙」是两回事，别混**：
+
+- `left_margin` / `right_margin` → 视图**外面**的 `layoutParams` 边距，决定它与相邻图标、容器的距离；
+- `gap_left` / `gap_right` → 视图**内面**的 `setPadding`，决定框边到文字的留白。
 
 **排布语义（2026-10-04 定稿）**：`layout = 双行` 时**网速固定占左列、仪表固定占右列**，
 列内各占两行 —— **与开了几个槽位无关**（早先版本让列分配跟着槽位数走，已废弃）。
@@ -521,12 +532,11 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 **除字号外，样式类参数一律「0 或默认值 = 不干预」**——原生视图的宽度、边距由系统状态栏
 布局决定，参数没设就不该覆盖它（否则默认值会把原生边距抹成 0）。
 
-> ⚠️ **hook 层还留着一批没有 UI 入口的参数**：`StatusBarMeterState.Contributor` 暴露的
-> `fontStyle` / `align` / `fixedWidthDp` / `leftMarginDp` / `rightMarginDp` / `verticalOffsetDp`，
-> 以及网速贡献者用的 `style` / `swap_places` / `hide` / `hide_slow` / `hide_all`。
-> `HookCatalog` 里都没有对应声明，UI 改不了，只能吃默认值 —— 而 `style` 的历史值
-> （DB 里是 `3` = 上下行双排）**至今仍在影响网速的文本形状**。
-> **要么补上 UI，要么从 hook 层删掉**，别留着这个看不见的旋钮。
+> **2026-10-04 补 UI**：`font_style` / `align` / `fixed_width` / `left_margin` / `right_margin` /
+> `vertical_offset` / `reverse_order` / `in_charge` / `temp_decimal` 这 9 项此前**只在 hook 层被读取、
+> `HookCatalog` 里没有声明** —— UI 改不了、只能吃默认值，等于一批看不见的旋钮。现已全部补上声明。
+> 同时把与 `font_style = 加粗` 完全等效的 `bold` 开关**合并掉**（加粗只剩一个入口），
+> `Contributor.bold` 字段已删除。
 
 ### 为什么要「接管」而不是自己插布局
 
@@ -594,7 +604,7 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 |---|---|
 | 实现类 | `libhook/.../rules/systemui/StatusBarSpeedHook.kt`（配置 + 贡献者）+ 共用 `meter/StatusBarMeterHookBase.kt`、`meter/StatusBarMeterState.kt`、`meter/MeterReader.kt` |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 10 项（见「参数页形态」）：排布 / 数值格式 / 符号 / 字体 / 空隙 + 刷新间隔 |
+| 参数 | 19 项（见「参数页形态」）：样式 / 排布 / 数值格式 / 符号 / 低速隐藏 / 字体 / 对齐 / 宽度 / 边距 / 空隙 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`） |
 | 默认 | **关闭**（`defaultEnabled = false`） |
 
@@ -609,19 +619,30 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 | 参数 | 类型 / 选项 | 默认 |
 |---|---|---|
+| `style` | `Select`：值和单位单行 / 值和单位双排 / 上下行单行 / 上下行双排 | 值和单位单行 |
+| `swap_places` | `Select`：上传在上 / 下载在上 | 上传在上 |
 | `layout` | `Select`：跟随样式 / 单行 / 双行 | 跟随样式 |
 | `decimals` | `IntRange` 0 ~ 2 | 1 |
 | `hide_unit` | `Select`：显示 / 隐藏（`KB/s`、`MB/s` 整段一起隐藏） | 显示 |
 | `hide_arrow` | `Select`：显示 / 隐藏（`↑` `↓` 箭头） | 显示 |
 | `hide_per_s` | `Select`：显示 / 隐藏（隐藏 `/s`，只留 `KB`、`MB`） | 显示 |
-| `bold` | `Select`：跟随系统 / 加粗 | 跟随系统 |
+| `hide` | `Select`：不隐藏 / 低于阈值时隐藏 | 不隐藏 |
+| `hide_slow` | `IntRange` 1 ~ 2048 KB/s（收发合计） | 64 |
+| `hide_all` | `Select`：正常显示 / 一律留空（配合「低速隐藏」，相当于临时关掉显示） | 正常显示 |
+| `font_style` | `Select`：跟随系统 / 细体 / 加粗 | 跟随系统 |
 | `font_size_sp` | `IntRange` 0 ~ 24 sp（0 = 跟随系统） | 0 |
-| `gap_left` | `IntRange` 0 ~ 30 dp | 0 |
-| `gap_right` | `IntRange` 0 ~ 30 dp | 0 |
+| `align` | `Select`：保持原生 / 靠左 / 居中 / 靠右 | 保持原生 |
+| `fixed_width` | `IntRange` 0 ~ 120 dp（0 = 不干预） | 0 |
+| `left_margin` / `right_margin` | `IntRange` 0 ~ 16 dp（0 = 保持原生） | 0 |
+| `vertical_offset` | `IntRange` −20 ~ 20 dp（正值下移） | 0 |
+| `gap_left` / `gap_right` | `IntRange` 0 ~ 30 dp（框内留白，非外边距） | 0 |
 | `refresh_ms` | `IntRange` 500 ~ 5000 ms | 1000 |
 
-**上下行顺序固定「上传在上、下载在下」**（`rxTx()` 先给 tx）。`layout = 跟随样式` 时，
-单行 / 双行由 hook 层的历史 `style` 推导 —— 就是 §9 末尾提到的那个「看不见的旋钮」。
+**`style` 与 `layout` 的分工**：`style` 决定这段文本**长什么样**（几个片段、怎么拼），
+`layout` 决定**断不断行**。`layout = 跟随样式` 时按 `style` 推导 ——
+`值和单位双排` / `上下行双排` 语义上就是双行。
+
+**上下行顺序固定「上传在上、下载在下」**，`swap_places` 可换。`rxTx()` 里先给 tx。
 
 ### 为什么和 `status_bar_meter` 分成两个 Hook
 

@@ -56,8 +56,6 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
                     }
                 }
 
-            override val bold: Boolean get() = cfg("bold", OFF) == ON
-
             override val fontStyle: Int get() = cfg("font_style", StatusBarMeterState.FONT_DEFAULT)
 
             override val align: Int get() = cfg("align", StatusBarMeterState.ALIGN_NATIVE)

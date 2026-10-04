@@ -401,9 +401,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                 unit.setTextSize(TypedValue.COMPLEX_UNIT_PX, unitDefaultPx)
             }
 
-            // 字重：细体 / 粗体 / 跟随系统
+            // 字重：细体 / 粗体 / 跟随系统（加粗只有 font_style 一个入口）
             val style = primary?.fontStyle ?: StatusBarMeterState.FONT_DEFAULT
-            val bold = primary?.bold == true || style == StatusBarMeterState.FONT_BOLD
+            val bold = style == StatusBarMeterState.FONT_BOLD
             applyTypeface(number, numberDefaultTypeface, style, bold)
             applyTypeface(unit, unitDefaultTypeface, style, bold)
 

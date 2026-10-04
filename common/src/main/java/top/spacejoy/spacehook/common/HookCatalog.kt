@@ -333,21 +333,54 @@ object HookCatalog {
                 HookParam.Select(
                     key = "hide_unit",
                     title = "单位",
-                    summary = "是否隐藏 w / mA / ℃ 等单位后缀",
+                    summary = "是否隐藏 w / mA / ℃ 后缀；可按「只隐藏温度」或「只隐藏功耗与电流」细分",
                     default = 0,
                     options = listOf(
                         HookParam.Select.Option(0, "显示"),
-                        HookParam.Select.Option(1, "隐藏"),
+                        HookParam.Select.Option(1, "全部隐藏"),
+                        HookParam.Select.Option(2, "仅隐藏温度"),
+                        HookParam.Select.Option(3, "仅隐藏功耗与电流"),
                     ),
                 ),
                 HookParam.Select(
-                    key = "bold",
-                    title = "字体粗细",
-                    summary = "「跟随系统」保持原生网速的字重不变",
+                    key = "temp_decimal",
+                    title = "温度小数位",
+                    summary = "温度固定取整或保留一位小数（功耗 / 电流的小数位由上面的「小数位数」管）",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "取整"),
+                        HookParam.Select.Option(1, "一位小数"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "reverse_order",
+                    title = "槽位顺序",
+                    summary = "反转 4 个槽位的排列顺序",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "正序"),
+                        HookParam.Select.Option(1, "反转"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "in_charge",
+                    title = "显示时机",
+                    summary = "「仅充电时」会在没插电时整段留空，把原生网速一起顶掉",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "始终显示"),
+                        HookParam.Select.Option(1, "仅充电时"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "font_style",
+                    title = "字体样式",
+                    summary = "细体走 sans-serif-light；加粗在原生字体上加粗",
                     default = 0,
                     options = listOf(
                         HookParam.Select.Option(0, "跟随系统"),
-                        HookParam.Select.Option(1, "加粗"),
+                        HookParam.Select.Option(1, "细体"),
+                        HookParam.Select.Option(2, "加粗"),
                     ),
                 ),
                 HookParam.IntRange(
@@ -357,6 +390,51 @@ object HookCatalog {
                     default = 0,
                     min = 0,
                     max = 24,
+                ),
+                HookParam.Select(
+                    key = "align",
+                    title = "水平对齐",
+                    summary = "文本在框内的对齐方式；「保持原生」不碰 gravity",
+                    default = 1,
+                    options = listOf(
+                        HookParam.Select.Option(1, "保持原生"),
+                        HookParam.Select.Option(2, "靠左"),
+                        HookParam.Select.Option(3, "居中"),
+                        HookParam.Select.Option(4, "靠右"),
+                    ),
+                ),
+                HookParam.IntRange(
+                    key = "fixed_width",
+                    title = "固定宽度",
+                    summary = "给整块设最小宽度（dp）；0 = 不干预，让内容自己撑开",
+                    default = 0,
+                    min = 0,
+                    max = 120,
+                ),
+                HookParam.IntRange(
+                    key = "left_margin",
+                    title = "左外边距",
+                    summary = "整块左侧与相邻图标之间的外边距（dp）；0 = 保持原生。" +
+                        "与下面的「左空隙」不同：那个是框内留白，这个是框外间距",
+                    default = 0,
+                    min = 0,
+                    max = 16,
+                ),
+                HookParam.IntRange(
+                    key = "right_margin",
+                    title = "右外边距",
+                    summary = "整块右侧与相邻图标之间的外边距（dp）；0 = 保持原生",
+                    default = 0,
+                    min = 0,
+                    max = 16,
+                ),
+                HookParam.IntRange(
+                    key = "vertical_offset",
+                    title = "垂直偏移",
+                    summary = "整块上下微调（dp）：正值下移、负值上移；0 = 保持原生",
+                    default = 0,
+                    min = -20,
+                    max = 20,
                 ),
                 HookParam.IntRange(
                     key = "gap_left",
@@ -403,6 +481,29 @@ object HookCatalog {
             params = listOf(
                 // 与功耗/温度仪表共用一套独立整屏配置页
                 HookParam.FullPage(),
+                HookParam.Select(
+                    key = "style",
+                    title = "显示样式",
+                    summary = "决定这段文本长什么样：值和单位合成一段 / 拆成上下两段 / " +
+                        "上下行并排 / 上下行分两行。「排布方式」选「跟随样式」时，行数也由它推导",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "值和单位单行"),
+                        HookParam.Select.Option(1, "值和单位双排"),
+                        HookParam.Select.Option(2, "上下行单行"),
+                        HookParam.Select.Option(3, "上下行双排"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "swap_places",
+                    title = "上下行顺序",
+                    summary = "默认上传在上、下载在下",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "上传在上"),
+                        HookParam.Select.Option(1, "下载在上"),
+                    ),
+                ),
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
@@ -454,13 +555,42 @@ object HookCatalog {
                     ),
                 ),
                 HookParam.Select(
-                    key = "bold",
-                    title = "字体粗细",
-                    summary = "「跟随系统」保持原生网速的字重不变",
+                    key = "hide",
+                    title = "低速隐藏",
+                    summary = "开启后，速率低于阈值时整段留空",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "不隐藏"),
+                        HookParam.Select.Option(1, "低于阈值时隐藏"),
+                    ),
+                ),
+                HookParam.IntRange(
+                    key = "hide_slow",
+                    title = "隐藏阈值",
+                    summary = "收发合计低于这个值就隐藏（KB/s）；需先打开上面的「低速隐藏」",
+                    default = 64,
+                    min = 1,
+                    max = 2048,
+                ),
+                HookParam.Select(
+                    key = "hide_all",
+                    title = "全部隐藏",
+                    summary = "配合「低速隐藏」使用：不看阈值，一律留空（相当于临时关掉显示）",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "正常显示"),
+                        HookParam.Select.Option(1, "一律留空"),
+                    ),
+                ),
+                HookParam.Select(
+                    key = "font_style",
+                    title = "字体样式",
+                    summary = "细体走 sans-serif-light；加粗在原生字体上加粗",
                     default = 0,
                     options = listOf(
                         HookParam.Select.Option(0, "跟随系统"),
-                        HookParam.Select.Option(1, "加粗"),
+                        HookParam.Select.Option(1, "细体"),
+                        HookParam.Select.Option(2, "加粗"),
                     ),
                 ),
                 HookParam.IntRange(
@@ -470,6 +600,51 @@ object HookCatalog {
                     default = 0,
                     min = 0,
                     max = 24,
+                ),
+                HookParam.Select(
+                    key = "align",
+                    title = "水平对齐",
+                    summary = "文本在框内的对齐方式；「保持原生」不碰 gravity",
+                    default = 1,
+                    options = listOf(
+                        HookParam.Select.Option(1, "保持原生"),
+                        HookParam.Select.Option(2, "靠左"),
+                        HookParam.Select.Option(3, "居中"),
+                        HookParam.Select.Option(4, "靠右"),
+                    ),
+                ),
+                HookParam.IntRange(
+                    key = "fixed_width",
+                    title = "固定宽度",
+                    summary = "给整块设最小宽度（dp）；0 = 不干预，让内容自己撑开",
+                    default = 0,
+                    min = 0,
+                    max = 120,
+                ),
+                HookParam.IntRange(
+                    key = "left_margin",
+                    title = "左外边距",
+                    summary = "整块左侧与相邻图标之间的外边距（dp）；0 = 保持原生。" +
+                        "与下面的「左空隙」不同：那个是框内留白，这个是框外间距",
+                    default = 0,
+                    min = 0,
+                    max = 16,
+                ),
+                HookParam.IntRange(
+                    key = "right_margin",
+                    title = "右外边距",
+                    summary = "整块右侧与相邻图标之间的外边距（dp）；0 = 保持原生",
+                    default = 0,
+                    min = 0,
+                    max = 16,
+                ),
+                HookParam.IntRange(
+                    key = "vertical_offset",
+                    title = "垂直偏移",
+                    summary = "整块上下微调（dp）：正值下移、负值上移；0 = 保持原生",
+                    default = 0,
+                    min = -20,
+                    max = 20,
                 ),
                 HookParam.IntRange(
                     key = "gap_left",
