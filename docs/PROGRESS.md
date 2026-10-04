@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（两个参数页按 HyperCeiler 形态重构：`HookParam` 新增 `Toggle` / `group` / `dependsOn` / `unit`）
+> 最后更新：2026-10-04（参数页形态回退 + 数值点数字手动输入 + 状态栏排布定稿 + 承载视图 WRAP_CONTENT）
 
 ---
 
@@ -24,10 +24,10 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
-| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修。参数页仿 HyperCeiler「电池信息」页（3 组 17 项） |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修。参数页为独立整屏页，逐行 −/＋ 步进 + 点数字手动输入（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
-| 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页仿 HyperCeiler 网速页（2 组 17 项） |
-| 19 | 参数页形态重构（仿 HyperCeiler） | ✅ 完成 | `HookParam` 新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位）；`HookParamsScreen` 整屏页重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证：`分发完成：成功 6 / 共 6`，无任何回调异常 |
+| 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页与仪表共用同一个独立整屏页（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
+| 19 | 参数页形态重构（仿 HyperCeiler） | ❌ 已回退 | `HookParam` 曾新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位），`HookParamsScreen` 重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证曾通过（`分发完成：成功 6 / 共 6`），但**用户要求回退**（2026-10-04，显示不正常）：4 个 UI 文件退回重构前的逐行形态，`HookParam` 的 4 个新成员一并移除；**hook 层未受影响** |
 
 ---
 
@@ -71,7 +71,7 @@
 
 | 级别 | 问题 | 处理建议 |
 |---|---|---|
-| ✅ 已解决 | ~~4 个 Hook 的类名/方法名来自**旧 BeanShell 脚本**，未用 jadx 复核~~ → **8 个 Hook 的 hook 点已全部实测验证**（2026-09-26 ~ 2026-10-03） | 复核明细见 `docs/HOOKS.md` 各节 |
+| ✅ 已解决 | ~~4 个 Hook 的类名/方法名来自**旧 BeanShell 脚本**，未用 jadx 复核~~ → **10 个 Hook 的 hook 点已全部实测验证**（2026-09-26 ~ 2026-10-04） | 复核明细见 `docs/HOOKS.md` 各节 |
 | ✅ 已解决 | ~~123云盘真实包名未知~~ → 确认为 **`com.mfcloudcalculate.networkdisk`** | 已回填 `HookCatalog.targetApps` / `installer_redirect.targetPackages` / `scope.list`；命令：`aapt2 dump badging` |
 | ✅ 已废弃 | ~~jadx-ai-mcp 插件（`127.0.0.1:8650`）请求无响应~~ | 2026-10-03 起不再使用 jadx-ai-mcp 插件（8650 作废）；jadx-GUI 不再打开，`jadx-gui-1.5.6-all.jar` 恢复保留但仅以 CLI 模式调用 |
 | 🟡 中 | `BaseHook.replace()` 的返回值语义依赖「try 块最后表达式」 | 已实现并加注释，改动时注意不要破坏 |
@@ -346,6 +346,49 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-04（参数页形态回退 + 数值手动输入 + 状态栏排布定稿 + 承载视图 WRAP_CONTENT）
+
+**一、参数页形态回退**（用户要求：「还是还原UI为重构前的吧，至少显示正常」「包含状态栏那块」）
+
+- 下面那条 HyperCeiler 形态重构真机显示不正常，4 个 UI 文件整体退回重构前的逐行形态；
+  `HookParam` 的 `Toggle` / `group` / `dependsOn` / `IntRange.unit` 一并移除。
+  **hook 层未受影响**（`status_bar_meter` / `status_bar_speed` 的行为与参数读取不变）。
+
+**二、数值参数支持点数字手动输入**（用户要求：「字号等数值调整可点击数字进行手动输入」）
+
+- `RangeBlock` 里点中间的数字 → `OverlayDialog` + 数字键盘（`KeyboardType.Number`），
+  确定时解析并 `coerceIn(min, max)` 后落盘；取消不动原值。
+- 不用 Miuix `TextField` 的 `label`：它按「label 一行 + 数值一行」排版，而控件高度只算单行，
+  label 会压上边框、数值被下边框切。参数名已由弹窗标题给出。
+- 曾试过用 `BasicTextField` 自画输入框，**被用户否决，已回退**（自画版文字落到
+  Compose 默认的 `LocalContentColor` = 黑色，且不该绕开 Miuix 组件）。
+- **浮点（小数点）方案已整体回退**：`HookParam.FloatRange` / `SettingsStore`·`PrefsBridge`
+  的浮点读写 / `fontSizeSp` 改 Float / `FloatRangeBlock` 全部丢弃，**数值参数维持整数**。
+
+**三、键盘弹出把整个窗口顶上去**（用户反馈：「弹窗位置太靠上了，背景的UI也跟着向上移动了」）
+
+- 根因：`MainActivity` 原本**没有**声明 `windowSoftInputMode`（默认 `adjustUnspecified`），
+  配上 `enableEdgeToEdge()`（`decorFitsSystemWindows=false`）会退化成 `adjustPan` ——
+  键盘一弹整个窗口连背景一起上移，弹窗被顶到屏幕顶端。
+- 修法：manifest 补 `android:windowSoftInputMode="adjustResize"`。真机验证：弹窗贴在键盘上方，
+  背景页停在原位。
+
+**四、状态栏排布定稿**（用户逐轮收敛）
+
+- 列分配**不随槽位数变化**：双行时**网速固定左列、仪表固定右列**，列内各两行。
+- 上下行顺序固定「上传在上、下载在下」；新增「上下行符号」（`hide_arrow`）与
+  「速率后缀 /s」（`hide_per_s`）两个隐藏开关。
+- 新增 `gap_left` / `gap_right`（0 ~ 30 dp）左右空隙设置。
+- **承载视图必须保持 `WRAP_CONTENT`**（详见「三、已知问题」）：曾把它撑成 `MATCH_PARENT`，
+  导致「靠右侧闪烁」+「右侧空隙太大」——一条设置两个症状。
+
+**五、其他**
+
+- 批量重启界面的应用清单排除「系统框架」（`system` / `system_server` 无法单独重启）。
+- 文档对账：`README.md` 功能表 8 → 10 项；`docs/HOOKS.md` 两页参数表重写（原表描述的是更早
+  一套已不存在的参数，如 `reverse_order` / `in_charge` / `align` / `fixed_width`）；本文件
+  Hook 计数 8 → 10。
 
 ### 2026-10-04（两个参数页按 HyperCeiler 形态重构：`HookParam` 扩展 + `HookParamsScreen` 重写）
 
@@ -786,12 +829,14 @@ LSPosed 官方升级说明同样是 *Install over the previous version → Force
 ## 七、下一步建议（优先级从高到低）
 
 1. ~~确认 123 云盘包名~~ ✅ **已完成**（`com.mfcloudcalculate.networkdisk`，APK 包名均已核实）
-2. ~~逐个复核 Hook 点~~ ✅ **已完成**（8 个 Hook 全部实测验证，2026-09-26 ~ 2026-10-03）
+2. ~~逐个复核 Hook 点~~ ✅ **已完成**（10 个 Hook 全部实测验证，2026-09-26 ~ 2026-10-04）
 3. ~~真机部署验证~~ ✅ **已完成**（见「四之三」；覆盖安装更新流程见「六」）
 4. **SoundMan 移植**：分析报告已完成（`docs/ANALYSIS-SoundMan.md`），按其中三阶段方案实施
    （第一阶段：按应用音量 + 规则 UI），待启动
 5. `adb_stay_awake` 真机验证：需重启设备（system_server Hook），验证 ADB 开启常亮 / 断开恢复
-6. 「状态栏」分组后续功能：菜单层级已保留（`HookCategory.STATUS_BAR`），新功能挂入即可
+6. 「状态栏」分组：已挂 `status_bar_meter` / `status_bar_speed` 两项；
+   **状态栏时间 `status_bar_clock` 待实现**（思路：接管 `MiuiClock#updateTime()`，
+   按 `resources.getResourceEntryName(id)` 认时钟控件，Choreographer 秒级刷新，格式默认 `HH:mm`）
 7. 实装模糊效果（`miuix-blur-android`）与显式「立即热重载」按钮
 
 > ✅ 构建链路已完全跑通，可直接 `adb install app/build/outputs/apk/debug/app-debug.apk` 做初步冒烟测试。

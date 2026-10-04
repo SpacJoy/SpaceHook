@@ -79,12 +79,18 @@ Xposed.spacejoy.top/
 │           │   ├── PrefsBridge.kt       配置读取 + 开关判定
 │           │   └── ClassLoaderUtils.kt  子 ClassLoader 查找（MIUI plugin 场景）
 │           └── rules/                   各 Hook 实现
-│               ├── systemui/LockColonHook.kt
-│               ├── systemui/DeviceCenterSizeHook.kt
+│               ├── systemui/LockColonHook.kt（lock_colon）
+│               ├── systemui/DeviceCenterSizeHook.kt（device_center_size）
 │               ├── systemui/ControlCenterOrderHook.kt（cc_card_order）
 │               ├── systemui/CardStyleTilesHook.kt（cc_card_tiles）
+│               ├── systemui/StatusBarMeterHook.kt（status_bar_meter）
+│               ├── systemui/StatusBarSpeedHook.kt（status_bar_speed）
+│               ├── systemui/meter/      状态栏仪表共用层（hook 点 / 组装 / 数据源）
+│               │   ├── StatusBarMeterHookBase.kt   hook 点安装、视图写入、样式与排布
+│               │   ├── StatusBarMeterState.kt      两个 Hook 的贡献者与文本组装
+│               │   └── MeterReader.kt              sysfs / 粘性电池广播 / TrafficStats 只读数据源
 │               ├── soundrecorder/DisableListAutoPlayHook.kt
-│               ├── douyin/DouYinNoCropHook.kt
+│               ├── douyin/DouYinNoCropHook.kt（+ NoCropFitApplier / NoCropReflect / NoCropVideoAspect）
 │               ├── system/AdbStayAwakeHook.kt（system_server）
 │               └── generic/InstallerRedirectHook.kt
 └── app/                         UI 层（模块 App）
