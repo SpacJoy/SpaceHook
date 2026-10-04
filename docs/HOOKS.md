@@ -604,7 +604,7 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 |---|---|
 | 实现类 | `libhook/.../rules/systemui/StatusBarSpeedHook.kt`（配置 + 贡献者）+ 共用 `meter/StatusBarMeterHookBase.kt`、`meter/StatusBarMeterState.kt`、`meter/MeterReader.kt` |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
-| 参数 | 19 项（见「参数页形态」）：样式 / 排布 / 数值格式 / 符号 / 低速隐藏 / 字体 / 对齐 / 宽度 / 边距 / 空隙 + 刷新间隔 |
+| 参数 | 20 项（见「参数页形态」）：样式 / 排布 / 数值格式 / 符号 / 低速隐藏 / 字体 / 对齐 / 宽度 / 边距 / 空隙 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`） |
 | 默认 | **关闭**（`defaultEnabled = false`） |
 
