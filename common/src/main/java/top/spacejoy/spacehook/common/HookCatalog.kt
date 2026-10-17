@@ -134,8 +134,8 @@ object HookCatalog {
         ),
         HookMeta(
             id = "alarm_swipe_dismiss_distance",
-            name = "加长上滑关闭距离",
-            description = "上滑关闭闹钟不再由「快速一甩」触发：必须滑过设定的屏幕高度比例才关闭，" +
+            name = "加长上滑距离",
+            description = "上滑不再由「快速一甩」触发：必须滑过设定的屏幕高度比例才关闭，" +
                 "没滑够会回弹。拖动时的淡出进度与所需比例保持一致。",
             targetPackages = listOf("com.android.deskclock"),
             category = HookCategory.CLOCK,

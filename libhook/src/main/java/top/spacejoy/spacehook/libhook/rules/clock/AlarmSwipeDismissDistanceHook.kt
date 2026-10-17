@@ -7,7 +7,7 @@ import top.spacejoy.spacehook.libhook.utils.PrefsBridge
 import java.lang.reflect.Field
 
 /**
- * 时钟：加长「上滑关闭闹钟」所需的滑动距离。
+ * 时钟：加长闹钟响铃界面「上滑」所需的滑动距离。
  *
  * 目标 APK：`D:/Code/Android/APK/Hook/com.android.deskclock_18.28.0.apk`（18.28.0，真机同版本）
  * 目标进程：`com.android.deskclock`

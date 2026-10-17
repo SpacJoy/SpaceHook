@@ -831,7 +831,7 @@ private fun isTimerScreen(activity: Any?): Boolean =
 
 ---
 
-## 13. alarm_swipe_dismiss_distance —— 加长上滑关闭距离 ✅
+## 13. alarm_swipe_dismiss_distance —— 加长上滑距离 ✅
 
 | 项 | 值 |
 |---|---|
