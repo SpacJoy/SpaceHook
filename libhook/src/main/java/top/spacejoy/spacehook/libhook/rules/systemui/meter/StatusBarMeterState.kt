@@ -6,45 +6,37 @@ import java.lang.ref.WeakReference
 /**
  * 状态栏仪表的共享状态。
  *
- * 「功耗/温度仪表」和「实时网速」是两个独立的 Hook（独立开关、独立参数页），
- * 但它们显示在同一个位置——原生网速视图。视图只有一个、hook 点只能装一次，
- * 所以两边各自注册一个 [Contributor] 提供自己那段文本，由这里统一组装。
+ * 「功耗/温度仪表」和「实时网速」是两个独立的 Hook（独立开关、独立参数页）。
+ * 改造前它们写进**同一个**原生网速视图，而超级岛遮挡是逐个 View 判定的，
+ * 所以一个被挤掉两个一起消失。现在拆成两条输出链路：
  *
- * 组装规则：
- * - 单行：所有片段按 [Contributor.order] 升序用空格连成一行，放进「数字」文本框
- * - 左右双列：按 [Contributor.column] 分栏——**网速恒在左列、仪表恒在右列**，
- *   列内按 order / 槽位顺序排列，每列各自均衡切成 1–2 行。
- *   **分栏与「开了几个槽位」无关**，只有网速在时它照样在左列。
- * - 排布 / 字号 / 粗细 / 刷新间隔以 order 最小的贡献者为准（功耗仪表优先）
+ * - **网速**（[Contributor.separate] = false）→ 继续写原生 `NetworkSpeedView`
+ * - **仪表**（[Contributor.separate] = true）→ 写 [MeterSlot] 造的独立槽位视图
+ *
+ * 两个 View 各自参与遮挡计算，互不影响。
  */
 internal object StatusBarMeterState {
 
     /**
      * 一个显示贡献者：负责渲染自己那段文本。
      *
-     * 除 [order] / [layout] / [render] 外全部给了默认值——**排布与样式只由
-     * [primary] 那个贡献者说了算**，另一方的样式字段会被忽略，所以次要的
-     * 一方不必实现它们。
+     * 除 [order] / [separate] / [render] 外全部给了默认值——排布与样式只由
+     * 各自的贡献者说了算，另一方的字段会被忽略。
      */
     interface Contributor {
         /** 排序权重，小的排前面（功耗仪表 0、实时网速 10） */
         val order: Int
 
-        /** 落在哪一列：[COLUMN_LEFT]（网速）/ [COLUMN_RIGHT]（仪表） */
-        val column: Int get() = COLUMN_LEFT
+        /** 是否走独立槽位：仪表 true，网速 false */
+        val separate: Boolean get() = false
 
-        /** 单行 [LAYOUT_SINGLE] / 双行 [LAYOUT_DUAL] */
+        /** 单行 [LAYOUT_SINGLE] / 自动多行 [LAYOUT_DUAL] */
         val layout: Int get() = LAYOUT_DUAL
 
         /** 0 = 跟随系统原生字号 */
         val fontSizeSp: Int get() = 0
 
-        /**
-         * [FONT_DEFAULT] / [FONT_LIGHT] / [FONT_BOLD]。
-         *
-         * 加粗只有这一个入口——早先另有一个独立的 `bold` 开关，与 `FONT_BOLD` 完全等效，
-         * 已合并掉（2026-10-04）。
-         */
+        /** [FONT_DEFAULT] / [FONT_LIGHT] / [FONT_BOLD] */
         val fontStyle: Int get() = FONT_DEFAULT
 
         /** [ALIGN_NATIVE] / [ALIGN_LEFT] / [ALIGN_CENTER] / [ALIGN_RIGHT] */
@@ -68,9 +60,6 @@ internal object StatusBarMeterState {
     const val LAYOUT_SINGLE = 0
     const val LAYOUT_DUAL = 1
 
-    const val COLUMN_LEFT = 0
-    const val COLUMN_RIGHT = 1
-
     const val FONT_DEFAULT = 0
     const val FONT_LIGHT = 1
     const val FONT_BOLD = 2
@@ -86,8 +75,8 @@ internal object StatusBarMeterState {
     private var installed = false
 
     /**
-     * 承载视图。原生网速视图**不止一个实例**（状态栏一处，系统别处也会 inflate），
-     * 只记一个的话其余实例会冻在旧文本上——所以全部登记、全部刷新。
+     * 承载网速的原生视图。原生 `NetworkSpeedView` **不止一个实例**
+     * （状态栏一处，系统别处也会 inflate），只记一个的话其余实例会冻在旧文本上。
      */
     private val views = ArrayList<WeakReference<View>>()
 
@@ -101,18 +90,15 @@ internal object StatusBarMeterState {
     private var lastComposed: Pair<String, String>? = null
 
     /**
-     * 文本外空隙（dp），由两个 Hook 各自写自己那一份，布局时统一取用。
-     *
-     * 列序固定为「网速在左、仪表在右」，所以：
-     * 整块左边距 = [speedGapLeftDp]；两列间距 = [speedGapRightDp] + [meterGapLeftDp]；
-     * 整块右边距 = [meterGapRightDp]。单行时只有左边距与右边距有意义。
+     * 文本外空隙（dp），由两个 Hook 各自写自己那一份。
+     * 现在只有网速还用得上（仪表已独立成槽位）。
      */
     @Volatile var speedGapLeftDp = 0
     @Volatile var speedGapRightDp = 0
     @Volatile var meterGapLeftDp = 0
     @Volatile var meterGapRightDp = 0
 
-    /** 登记一个承载视图 */
+    /** 登记一个承载网速的视图 */
     @Synchronized
     fun addView(view: View) {
         views.removeAll { it.get() == null }
@@ -151,43 +137,50 @@ internal object StatusBarMeterState {
     val active: Boolean
         @Synchronized get() = contributors.isNotEmpty()
 
-    /** 排布 / 字号 / 粗细 / 刷新间隔以它为准 */
-    @Synchronized
-    fun primary(): Contributor? = contributors.values.minByOrNull { it.order }
+    /** 是否有贡献者走独立槽位（即仪表开着） */
+    val hasSeparate: Boolean
+        @Synchronized get() = contributors.values.any { it.separate }
 
+    /** 是否有贡献者写原生视图（即网速开着） */
+    val hasNative: Boolean
+        @Synchronized get() = contributors.values.any { !it.separate }
+
+    /** 刷新间隔取所有贡献者的最小值 */
     @Synchronized
     fun refreshMs(): Int = contributors.values.minOfOrNull { it.refreshMs } ?: DEFAULT_REFRESH_MS
 
-    /** 组装当前要写进状态栏的文本（第一行, 第二行）；null = 交还原生行为 */
+    /** 独立槽位的贡献者（仪表），按 order 排序 */
     @Synchronized
-    fun compose(): Pair<String, String>? {
+    fun separateContributor(): Contributor? =
+        contributors.values.filter { it.separate }.minByOrNull { it.order }
+
+    /**
+     * 写原生网速视图的那个贡献者（网速）。
+     *
+     * 原生视图的排布与样式只由它决定——仪表已经搬去独立槽位了，
+     * 不能再用仪表的字号/对齐去改网速视图。
+     */
+    @Synchronized
+    fun nativeContributor(): Contributor? =
+        contributors.values.filter { !it.separate }.minByOrNull { it.order }
+
+    /**
+     * 组装要写进**原生网速视图**的文本（数字框, 单位框）；null = 交还原生行为。
+     *
+     * 网速自己决定单行还是双行：双行时值是数字框、单位是单位框。
+     */
+    @Synchronized
+    fun composeNative(): Pair<String, String>? {
         val source = reader ?: return null
-        // 按列分组：左列（仪表）、右列（网速），列内保持槽位顺序
-        val columns = arrayOf(ArrayList<String>(5), ArrayList<String>(3))
         val parts = ArrayList<String>(5)
         for (contributor in contributors.values.sortedBy { it.order }) {
-            val rendered = try {
-                contributor.render(source)
-            } catch (_: Throwable) {
-                emptyList()
-            }
-            val kept = rendered.filter { it.isNotEmpty() }
-            if (kept.isNotEmpty()) {
-                columns[if (contributor.column == COLUMN_RIGHT) 1 else 0].addAll(kept)
-                parts.addAll(kept)
-            }
+            if (contributor.separate) continue
+            parts.addAll(safeRender(contributor, source))
         }
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        // 左右双列：网速恒在左列（下行/上行），仪表恒在右列（功耗/电流/温度），
-        // 每列各自均衡切行。分栏与「开了几个槽位」无关。
-        // 单行：全部挤进「数字」框，右列留空。
-        val result = if (primary()?.layout == LAYOUT_DUAL) {
-            column(columns[0]) to column(columns[1])
-        } else {
-            parts.joinToString(" ") to ""
-        }
+        val result = if (parts.size >= 2) parts[0] to parts[1] else parts[0] to ""
         if (result != lastComposed) {
             lastComposed = result
             onCompose?.invoke(parts, result)
@@ -196,7 +189,39 @@ internal object StatusBarMeterState {
     }
 
     /**
-     * 把一列片段排成 1–2 行：2 段以上就均衡切分（4 段 → 2+2，3 段 → 2+1），行间换行。
+     * 组装要写进**独立槽位**的文本；null = 无内容（不写）。
+     *
+     * 多个槽位按 [Contributor.layout] 决定排成一行还是自动切两行。
+     */
+    @Synchronized
+    fun composeSlot(): String? {
+        val source = reader ?: return null
+        val primary = separateContributor() ?: return null
+        val parts = ArrayList<String>(5)
+        for (contributor in contributors.values.sortedBy { it.order }) {
+            if (!contributor.separate) continue
+            parts.addAll(safeRender(contributor, source))
+        }
+        if (parts.isEmpty()) return ""
+        return if (primary.layout == LAYOUT_SINGLE) {
+            parts.joinToString(" ")
+        } else {
+            column(parts)
+        }
+    }
+
+    /** 渲染一个贡献者，异常时当空处理，绝不让它拖垮状态栏 */
+    private fun safeRender(contributor: Contributor, source: MeterReader): List<String> {
+        val rendered = try {
+            contributor.render(source)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        return rendered.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * 把一段内容排成 1–2 行：2 段以上就均衡切分（4 段 → 2+2，3 段 → 2+1），行间换行。
      * 只有 1 段就保持单行——免得留下空的第二行。
      */
     private fun column(list: List<String>): String {

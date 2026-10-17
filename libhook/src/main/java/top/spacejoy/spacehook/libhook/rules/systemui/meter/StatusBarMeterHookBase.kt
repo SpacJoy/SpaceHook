@@ -56,6 +56,12 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     /** 可见性桥诊断剩余条数 */
     private var bridgeDiagLeft = 8
 
+    /** 独立槽位诊断剩余条数 */
+    private var slotDiagLeft = 8
+
+    /** 槽位心跳计数（低频打印运行态） */
+    private var slotHeartbeat = 0
+
     private val dumpedViews = HashSet<Int>()
 
     /** 视图来源链只打印一次 */
@@ -70,22 +76,31 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     private val tick = object : Runnable {
         override fun run() {
             val h = handler ?: return
-            val views = StatusBarMeterState.liveViews()
-            if (views.isEmpty()) {
-                // 状态栏被重建，等新视图回调 onFinishInflate 再启动
-                handler = null
-                return
-            }
             try {
+                val views = StatusBarMeterState.liveViews()
+                // 注意：**不能**因为网速视图为空就停掉整个循环。
+                // 仪表走的是独立槽位，不依赖原生网速视图；以前这里 return 会导致
+                // 网速视图被清空（例如超级岛出现、状态栏重建）之后仪表也跟着停住不再刷新。
                 if (StatusBarMeterState.active) {
-                    // 一次刷新只组装一次：网速是差分采样，组装两遍会白白推进一次基线
-                    val text = StatusBarMeterState.compose()
+                    // 网速链路：仍然写原生网速视图。
+                    // 一次刷新只组装一次——网速是差分采样，组装两遍会白白推进一次基线。
+                    val text = StatusBarMeterState.composeNative()
                     if (text != null) {
                         for (view in views) {
+                            if (MeterSlot.isSlotView(view)) continue
                             writeText(view, text)
                             applyStructure(view)
                         }
                     }
+                    // 仪表链路：写独立的槽位视图，与网速那个 View 完全分开，
+                    // 所以超级岛挤掉其中一个不会影响另一个
+                    // 原生 NetworkSpeedView 有多个实例（状态栏 / 息屏 / 下拉栏各一份），
+                    // 必须挑**真正在屏幕上显示的那个**当锚点，否则会挂到隐藏容器上
+                    // （实测挂错容器时视图坐标对但屏幕上看不见，isShown()=false）。
+                    val shownAnchor = views.firstOrNull {
+                        !MeterSlot.isSlotView(it) && it.isAttachedToWindow && it.isShown
+                    } ?: views.firstOrNull { !MeterSlot.isSlotView(it) }
+                    refreshSlot(shownAnchor)
                 }
                 // 布局期之后再抓一次结构：onFinishInflate 时 isShown 还没算出来
                 if (dumpedViews.size < views.size) for (view in views) dumpView(view)
@@ -131,7 +146,7 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     /** 文本链路 + 可见性链路 */
     private fun hookController(clazz: Class<*>) {
         replace(clazz, "updateText", arrayOf<Class<*>>(Array<String>::class.java)) { chain ->
-            val text = StatusBarMeterState.compose()
+            val text = StatusBarMeterState.composeNative()
             // updateText(String[]) 只吃一个参数（String[]），不是两个 String
             if (text == null) chain.proceed()
             else chain.proceed(arrayOf<Any?>(arrayOf(text.first, text.second)))
@@ -188,11 +203,14 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             // 状态栏那个实例通常在模块加载之前就 inflate 完了，onFinishInflate 拦不到它，
             // 只有这里能兜住——否则它会一直冻在旧文本上，而且永远不会被定时器刷新。
             val view = chain.thisObject as? View
+            // 我们自己造的槽位视图也继承了 NetworkSpeedView，原生推文本时会推到它身上。
+            // 直接放行会让原生格式（带尾空格、单行）覆盖掉仪表文本，所以这里必须拦掉。
+            if (MeterSlot.isSlotView(view)) return@replace null
             if (view != null) {
                 StatusBarMeterState.addView(view)
                 dumpChain(view)
             }
-            val text = StatusBarMeterState.compose()
+            val text = StatusBarMeterState.composeNative()
             if (text == null || view == null) {
                 chain.proceed()
             } else {
@@ -210,7 +228,8 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         findMethod(clazz, METHOD_UPDATE_SPEED_TEXT)?.let { method ->
             hookExecutable(method) { chain ->
                 val view = chain.thisObject as? View
-                val text = StatusBarMeterState.compose()
+                if (MeterSlot.isSlotView(view)) return@hookExecutable null
+                val text = StatusBarMeterState.composeNative()
                 if (view == null || text == null) chain.proceed() else {
                     writeText(view, text)
                     null
@@ -243,6 +262,73 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         dumpView(view)
         dumpChain(view)
         startTicker()
+    }
+
+    /**
+     * 刷新独立的仪表槽位。
+     *
+     * 槽位视图会在 `IconManager.destroy()`（启动时必然触发一次）里被连带清空，
+     * 所以每次刷新都要确认它还在容器里，不在就重新挂上去。
+     *
+     * @param anchor 原生网速视图，用来定位容器、同步主题色与字号
+     */
+    private fun refreshSlot(anchor: View?) {
+        if (!StatusBarMeterState.hasSeparate) {
+            // 仪表关了 → 把槽位摘掉，别在状态栏留一块空白
+            MeterSlot.detach()
+            return
+        }
+        // 间距由仪表自己的配置决定（复用原来的「左空隙」键）
+        MeterSlot.marginStartDp = StatusBarMeterState.meterGapLeftDp
+
+        // anchor 是原生网速视图，用来定位容器。但它可能被超级岛 / 状态栏重建清空，
+        // 所以 anchor 为空时退回到「上次记下的容器」继续工作，别让仪表跟着停摆。
+        val attached = when {
+            anchor != null -> MeterSlot.ensure(anchor)
+            else -> MeterSlot.ensureIn(MeterSlot.liveContainer())
+        }
+        if (!attached) {
+            if (slotDiagLeft > 0) {
+                slotDiagLeft--
+                logw(
+                    "仪表槽位挂载失败: anchor=" + (anchor != null) +
+                        " 容器=" + (MeterSlot.liveContainer() != null) +
+                        " 已有视图=" + (MeterSlot.viewForLog() != null),
+                )
+            }
+            return
+        }
+        val text = StatusBarMeterState.composeSlot()
+        if (text == null) {
+            if (slotDiagLeft > 0) {
+                slotDiagLeft--
+                logw("仪表文本为空: reader=" + (StatusBarMeterState.reader != null))
+            }
+            return
+        }
+        // 低频心跳：确认槽位仍然挂在容器上（每 60 次刷新打一条，排查时够用又不刷屏）
+        if (++slotHeartbeat % 60 == 0) {
+            val v = MeterSlot.viewForLog()
+            logd(
+                "槽位心跳: 文本=[" + text.replace("\n", "/") + "] " +
+                    "附着=" + (v?.isAttachedToWindow ?: false) +
+                    " 可见=" + (v?.isShown ?: false) +
+                    " 宽=" + (v?.width ?: -1) +
+                    " 下标=" + ((v?.parent as? ViewGroup)?.indexOfChild(v) ?: -1),
+            )
+        }
+        val contributor = StatusBarMeterState.separateContributor()
+        MeterSlot.write(
+            text = text,
+            anchor = anchor,
+            fontSizeSp = contributor?.fontSizeSp ?: 0,
+            fontStyle = contributor?.fontStyle ?: StatusBarMeterState.FONT_DEFAULT,
+            align = contributor?.align ?: StatusBarMeterState.ALIGN_NATIVE,
+        )
+        if (slotDiagLeft > 0) {
+            slotDiagLeft--
+            logd("仪表槽位已写入: [" + text + "]")
+        }
     }
 
     /**
@@ -295,7 +381,7 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             }
             return
         }
-        val dual = StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL
+        val dual = StatusBarMeterState.nativeContributor()?.layout == StatusBarMeterState.LAYOUT_DUAL
         applyLayout(view, dual)
         // 左右双列：左列写数字框、右列写单位框。容器已被 applyLayout 换成横排 LinearLayout，
         // 所以单位框现在真的画得出来（原生 FrameLayout 里它被 wrap_content 裁掉）。
@@ -351,7 +437,7 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             view.setPadding(padLeft, view.paddingTop, padRight, view.paddingBottom)
         }
 
-        val dual = StatusBarMeterState.primary()?.layout == StatusBarMeterState.LAYOUT_DUAL
+        val dual = StatusBarMeterState.nativeContributor()?.layout == StatusBarMeterState.LAYOUT_DUAL
         val gap = if (dual) {
             dp(COLUMN_GAP_DP + StatusBarMeterState.speedGapRightDp + StatusBarMeterState.meterGapLeftDp)
         } else {
@@ -389,7 +475,7 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             if (numberDefaultTypeface == null) numberDefaultTypeface = number.typeface
             if (unitDefaultTypeface == null) unitDefaultTypeface = unit.typeface
 
-            val primary = StatusBarMeterState.primary()
+            val primary = StatusBarMeterState.nativeContributor()
 
             // 字号：0 = 跟随系统（还原首次记下的原生 px）
             val sp = primary?.fontSizeSp ?: 0

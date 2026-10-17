@@ -336,8 +336,9 @@ object HookCatalog {
         HookMeta(
             id = "status_bar_meter",
             name = "状态栏功耗/温度仪表",
-            description = "接管状态栏「实时网速」的显示位置，改为显示所选指标：电池功耗（W）、电流（mA）、" +
-                "CPU 温度、电池温度。最多 4 项，可单行或双行排布，字号与粗细可调。",
+            description = "在状态栏显示所选指标：电池功耗（W）、电流（mA）、CPU 温度、电池温度。" +
+                "最多 4 项，可单行或双行排布，字号与粗细可调。与「实时网速」各占独立位置，" +
+                "被超级岛遮挡时互不影响。",
             targetPackages = listOf("com.android.systemui"),
             category = HookCategory.STATUS_BAR,
             defaultEnabled = false,
@@ -507,8 +508,8 @@ object HookCatalog {
                 HookParam.IntRange(
                     key = "gap_left",
                     title = "左空隙",
-                    summary = "仪表左边缘与网速之间的额外间距（dp）；网速没开时即整块左边距",
-                    default = 0,
+                    summary = "仪表左边缘与左侧相邻图标（通常是电池）之间的间距（dp）",
+                    default = 6,
                     min = 0,
                     max = 30,
                 ),
@@ -534,8 +535,8 @@ object HookCatalog {
         HookMeta(
             id = "status_bar_speed",
             name = "状态栏实时网速",
-            description = "接管状态栏「实时网速」的显示位置，按自定义格式显示实时收发总速率（KB/s、MB/s 自动切换）。" +
-                "与「状态栏功耗/温度仪表」同时开启时合并显示，排布与字号以仪表为准。",
+            description = "在状态栏显示实时收发速率（KB/s、MB/s 自动切换），格式可自定义。" +
+                "与「功耗/温度仪表」各占独立位置，被超级岛遮挡时互不影响。",
             targetPackages = listOf("com.android.systemui"),
             category = HookCategory.STATUS_BAR,
             defaultEnabled = false,

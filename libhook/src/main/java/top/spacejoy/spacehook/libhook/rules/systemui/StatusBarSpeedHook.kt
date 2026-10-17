@@ -29,8 +29,8 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
             override val order: Int = ORDER
 
-            /** 网速恒在左列（仪表恒在右列），与开了几个槽位无关 */
-            override val column: Int = StatusBarMeterState.COLUMN_LEFT
+            /** 网速继续写原生网速视图（不占独立槽位） */
+            override val separate: Boolean = false
 
             /**
              * 单行 / 双行。

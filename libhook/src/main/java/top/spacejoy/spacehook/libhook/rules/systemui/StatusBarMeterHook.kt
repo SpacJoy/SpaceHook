@@ -23,8 +23,13 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
 
             override val order: Int = ORDER
 
-            /** 仪表恒在右列（网速恒在左列），与开了几个槽位无关 */
-            override val column: Int = StatusBarMeterState.COLUMN_RIGHT
+            /**
+             * 走独立槽位：仪表不再写原生网速视图，而是挂一个自己的 View 到状态栏容器末尾。
+             *
+             * 这样超级岛按 View 逐个判定遮挡时，仪表和网速就是两个独立单位，
+             * 挤掉一个不会连带另一个。
+             */
+            override val separate: Boolean = true
 
             override val layout: Int
                 get() {
@@ -61,7 +66,9 @@ internal class StatusBarMeterHook : StatusBarMeterHookBase("status_bar_meter") {
             /** 一个槽位一段；读不到数据的槽位直接跳过 */
             override fun render(reader: MeterReader): List<String> {
                 // 仪表是右列：左空隙 = 与网速之间的间距，右空隙 = 与状态栏图标之间的间距
-                StatusBarMeterState.meterGapLeftDp = cfg("gap_left", 0)
+                // 独立槽位后，「左空隙」= 与左侧相邻图标（通常是电池）的距离。
+                // 默认给 6dp，否则仪表会紧贴电池图标。
+                StatusBarMeterState.meterGapLeftDp = cfg("gap_left", 6)
                 StatusBarMeterState.meterGapRightDp = cfg("gap_right", 0)
                 // 「仅充电时显示」：没插电就整段留空，把原生内容顶掉
                 if (cfg("in_charge", OFF) == ON && !reader.isCharging()) return listOf("")
