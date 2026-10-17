@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-04（补齐状态栏两个 Hook 的「无 UI 参数」，仪表 20 项 / 网速 19 项）
+> 最后更新：2026-10-17（新增网易云音乐 Hook：去掉心动模式加载弹窗，真机验证通过）
 
 ---
 
@@ -28,6 +28,7 @@
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
 | 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页与仪表共用同一个独立整屏页（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 19 | 参数页形态重构（仿 HyperCeiler） | ❌ 已回退 | `HookParam` 曾新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位），`HookParamsScreen` 重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证曾通过（`分发完成：成功 6 / 共 6`），但**用户要求回退**（2026-10-04，显示不正常）：4 个 UI 文件退回重构前的逐行形态，`HookParam` 的 4 个新成员一并移除；**hook 层未受影响** |
+| 20 | 网易云音乐 `cloudmusic_no_smartplay_loading` | ✅ 完成 | 去掉心动模式加载弹窗（黑底 + 红心动画 +「正在打开心动模式...」）。抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`，replace 跳过即可；心动模式功能保留。真机验证弹窗消失、无闪退 |
 
 ---
 
@@ -346,6 +347,43 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-17（新增网易云音乐 Hook：去掉心动模式加载弹窗）
+
+**需求**：开启心动模式、或在歌曲列表里手动切歌时，屏幕中央会弹一个黑底圆角、
+红心动画 +「正在打开心动模式...」的加载弹窗（2–5 秒，期间下方界面不可点）。
+用户要求去掉弹窗，但**保留心动模式功能**。
+
+**首个第三方音乐类目标**：`com.netease.cloudmusic`（9.6.08，真机与素材同版本）。
+
+**两次弯路（已写入 `HOOKS.md` §11，避免重踩）**
+
+1. 按资源 ID 搜常量失败 —— 文案来自 `R.string.gk_`，但代码走的是 `w21.f.U0` 字段（`sget`），
+   `dexdump` 在 20 个 dex 里都搜不到 `0x7f1327a8`。
+2. 按「心动模式 = SmartPlay」追 `sendMessageToClient(903)` —— **拦截后弹窗照旧出现**，
+   说明弹窗与那条进程间消息无关；该方案已回滚。
+
+**真正命中的方法：抓 `Dialog#show` 调用栈**
+
+临时 hook `android.app.Dialog#show()` 打印 `thisObject` 类名 + 业务栈帧，直接得到
+`com.netease.cloudmusic.activity.ha#showDialog(boolean, String)`
+（上溯 `ha$c#onLoadSuccess`）。`showDialog` 的实现与现象逐条吻合：
+背景 `0xCC000000`、宽 200dp、`mWebpDrawable` 红心动画、文案 `w21.f.U0`、`postDelayed(..., 5000L)`。
+
+**实现**：`replace(ha#showDialog)` 直接跳过 —— 弹窗不创建也不 show；
+`dismissAIModeLoadingDialog()` 对 `null || !isShowing()` 本就 return，所以不会 NPE。
+心动模式的推荐接口与切歌续播完全不受影响。
+
+**真机验证**：拦截日志连续命中 3 次，弹窗消失，网易云无闪退。
+顺带排查了 native 风控（`libsec-lib.so` / `libnetmobsec-4.4.7.so` 含 `xposed`、`TracerPid` 特征），
+本次实测未触发，暂不处理。
+
+**改动文件**
+
+- 新增 `libhook/.../rules/cloudmusic/CloudMusicNoSmartPlayLoadingHook.kt`
+- `HookCatalog`（网易云 TargetApp + HookMeta）、`HookRegistry`、`scope.list`
+- `docs/HOOKS.md` §11
+
 
 ### 2026-10-04（补齐状态栏两个 Hook 的「无 UI 参数」+ 合并重复的加粗开关）
 

@@ -21,6 +21,7 @@
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
 | `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
 | `status_bar_speed` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 同显示位独立网速开关，真机已验证（与仪表合并显示） |
+| `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 | 20 个 dex / 约 18 万类 | ✅ 抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`；真机已验证弹窗消失 |
 
 ---
 
@@ -675,7 +676,84 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 ---
 
-## 11. 新增 Hook 的模板
+## 11. cloudmusic_no_smartplay_loading —— 去掉心动模式加载弹窗 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/cloudmusic/CloudMusicNoSmartPlayLoadingHook.kt` |
+| 目标 APK | `D:/Code/Android/APK/Hook/com.netease.cloudmusic_9.6.08.apk`（9.6.08，真机 `versionName=9.6.08 / versionCode=9006008`，与素材同版本） |
+| 目标进程 | `com.netease.cloudmusic`（实测只有这一个进程） |
+| 实测结论 | ✅ 真机验证：切歌 / 开心动模式不再弹窗，拦截日志连续命中 3 次，网易云无闪退 |
+
+### 功能语义
+
+开启心动模式、或在歌曲列表里切歌触发心动模式时，屏幕中央会弹出一个
+黑底半透明圆角、红心 WebP 动画 +「正在打开心动模式...」的加载弹窗，
+持续到推荐接口返回（约 2–5 秒），期间下方界面不可点。
+
+本 Hook 只去掉这个弹窗，**心动模式本身照常工作**（推荐接口、切歌续播均不受影响）。
+
+### hook 点
+
+```kotlin
+com.netease.cloudmusic.activity.ha#showDialog(boolean, String)
+```
+
+### 定位过程（两次弯路 + 一个可复用的抓栈手法）
+
+1. **按资源 ID 搜常量 —— 走不通。** 文案来自 `R.string.gk_`（`0x7f1327a8`），
+   但 `dexdump` 与自写 dex 扫描器在全部 20 个 dex 里都搜不到这个常量：
+   代码实际取的是 `w21.f.U0` 字段（`sget`），不是 `const`。
+2. **按「心动模式 = SmartPlay」追进程间消息 —— 走不通。** `qp0.z0#y4` 里确实有
+   `sendMessageToClient(903 = SMARTPLAY_LOADING, ...)`，但**把它拦掉之后弹窗照旧出现**：
+   真正的弹窗是播放页 Activity **本地**构建的 MaterialDialog，与那条消息无关。
+   （该方案已回滚，勿再尝试。）
+
+**真正一击命中的办法：抓 `Dialog#show` 的调用栈。** 临时在 Hook 里挂上
+`android.app.Dialog#show()`，打印 `thisObject` 类名 + 业务栈帧，得到：
+
+```
+Dialog.show -> com.afollestad.materialdialogs.k
+    at com.netease.cloudmusic.activity.ha.showDialog(180)
+    at com.netease.cloudmusic.activity.ha.W7(1)
+    at com.netease.cloudmusic.activity.ha$c.onLoadSuccess(45)
+```
+
+`showDialog` 的实现与现象逐条对应（`ha.java:378`）：
+
+```java
+inflate(w21.e.f292516c)                                      // 弹窗布局
+findViewById(w21.d.f292419b).setImageDrawable(mWebpDrawable)  // 红心 WebP 动画
+hk.a.a(this).b(false).r(view, false).e(-872415232)            // 背景 0xCC000000（黑底半透明）
+    .j(false).s(new b()).g();
+getWindow().setLayout(NeteaseMusicUtils.w(200.0f), -2);        // 宽 200dp、居中
+str = getString(w21.f.U0);                                     // 文案「正在打开心动模式...」
+mWebpDrawable.start();
+aiModeLoadingDialog.show();
+animHandler.postDelayed(..., 5000L);                           // 最长 5 秒后自动关闭
+```
+
+### 为什么跳过 `showDialog` 是安全的
+
+`dismissAIModeLoadingDialog()`（`ha.java:423`）第一句就是
+`if (aiModeLoadingDialog == null || !isShowing()) return;`，
+所以「从未创建过弹窗」不会 NPE，也不会留下悬空定时器。
+
+### 版本风险与重定位
+
+`com.netease.cloudmusic.activity.ha` 与 `showDialog` 都是 **R8 混淆名**，大版本更新后可能失效。
+重定位步骤：临时 hook `android.app.Dialog#show()` 打印类名 + 调用栈 → 找到新的
+`showDialog` 所在类与方法名 → 改实现里的两个常量（`CLS_PLAYER_ACTIVITY` / `METHOD_SHOW_DIALOG`）。
+
+### 反 hook 检测（本次未触发）
+
+APK 自带 native 风控（`libsec-lib.so` / `libnetmobsec-4.4.7.so` / `libnetdev-1.0.0.so`
+里含 `xposed` / `de.robv` / `TracerPid` 等特征）。本次真机实测全程未见闪退或异常，
+故暂不处理检测面；若日后出现闪退，再单独针对检测点处理。
+
+---
+
+## 12. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx

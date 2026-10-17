@@ -1,5 +1,6 @@
 package top.spacejoy.spacehook.libhook.base
 
+import top.spacejoy.spacehook.libhook.rules.cloudmusic.CloudMusicNoSmartPlayLoadingHook
 import top.spacejoy.spacehook.libhook.rules.douyin.DouYinNoCropHook
 import top.spacejoy.spacehook.libhook.rules.generic.InstallerRedirectHook
 import top.spacejoy.spacehook.libhook.rules.soundrecorder.DisableListAutoPlayHook
@@ -41,6 +42,9 @@ object HookRegistry {
 
         // ===== 抖音 =====
         "douyin_nocrop" to { DouYinNoCropHook() },
+
+        // ===== 网易云音乐 =====
+        "cloudmusic_no_smartplay_loading" to { CloudMusicNoSmartPlayLoadingHook() },
 
         // ===== 系统框架（system_server） =====
         "adb_stay_awake" to { AdbStayAwakeHook() },

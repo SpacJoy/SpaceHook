@@ -61,6 +61,12 @@ object HookCatalog {
             category = AppCategory.THIRD_PARTY,
             note = "视频 / 图集按原始宽高比完整显示（不裁剪）",
         ),
+        TargetApp(
+            packageName = "com.netease.cloudmusic",
+            displayName = "网易云音乐",
+            category = AppCategory.THIRD_PARTY,
+            note = "心动模式加载弹窗",
+        ),
     )
 
     // ==================== Hook 功能 ====================
@@ -135,6 +141,20 @@ object HookCatalog {
                 "com.ss.android.ugc.aweme.feed.adapter.FeedImageViewHolder#bind(Aweme[,int])（含 Full/Detail 子类）",
                 "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.cleanmode.CleanModeViewModel#sA(CleanModeCommand,String,boolean)（混淆名，按签名查找）",
                 "com.ss.android.videoshop.mediaview.VideoPatchLayout#onVideoSizeChanged(...,int,int)",
+            ),
+        ),
+        HookMeta(
+            id = "cloudmusic_no_smartplay_loading",
+            name = "去掉心动模式加载弹窗",
+            description = "开启心动模式、或在歌曲列表里切歌触发心动模式时，不再弹出屏幕中央的加载遮罩" +
+                "（红心图标 +「正在打开心动模式…」）。心动模式本身仍照常拉取推荐并播放。",
+            targetPackages = listOf("com.netease.cloudmusic"),
+            category = HookCategory.OTHER,
+            defaultEnabled = true,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.netease.cloudmusic.service.MainProcessPlayService#sendMessageToClient(int,int,int,Serializable)（拦截 903 = SMARTPLAY_LOADING）",
+                "qp0.z0#E2(boolean)（心动模式触发点，仅诊断日志）",
             ),
         ),
         HookMeta(
