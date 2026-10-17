@@ -55,6 +55,7 @@ Xposed.spacejoy.top/
 │   ├── ARCHITECTURE.md          架构与设计决策
 │   ├── PROGRESS.md              开发进度（每次改动请更新！）
 │   ├── HOOKS.md                 Hook 功能清单 + hook 点定位表
+│   ├── 新手代码地图.md           ★ 给项目所有者看的非技术向代码地图（排障路径 / 改动速查表）
 │   └── ANALYSIS-SoundMan.md     SoundMan 移植分析报告
 ├── common/                      纯数据层（UI 与 Hook 进程共用，禁止依赖 libxposed / Compose）
 │   └── src/main/java/top/spacejoy/spacehook/common/
