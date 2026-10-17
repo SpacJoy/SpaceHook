@@ -1,6 +1,8 @@
 package top.spacejoy.spacehook.libhook.base
 
 import top.spacejoy.spacehook.libhook.rules.cloudmusic.CloudMusicNoSmartPlayLoadingHook
+import top.spacejoy.spacehook.libhook.rules.clock.AlarmSwapSnoozeDismissHook
+import top.spacejoy.spacehook.libhook.rules.clock.AlarmSwipeDismissDistanceHook
 import top.spacejoy.spacehook.libhook.rules.douyin.DouYinNoCropHook
 import top.spacejoy.spacehook.libhook.rules.generic.InstallerRedirectHook
 import top.spacejoy.spacehook.libhook.rules.soundrecorder.DisableListAutoPlayHook
@@ -34,6 +36,10 @@ object HookRegistry {
 
         // ===== 录音机 =====
         "disable_list_autoplay" to { DisableListAutoPlayHook() },
+
+        // ===== 时钟 =====
+        "alarm_swap_snooze_dismiss" to { AlarmSwapSnoozeDismissHook() },
+        "alarm_swipe_dismiss_distance" to { AlarmSwipeDismissDistanceHook() },
 
         // ===== 安装器 =====
         // 注意：目标安装器（InstallerX Revived）只是改道的接收方，

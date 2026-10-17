@@ -1,6 +1,6 @@
 # Hook 功能清单与 hook 点定位表
 
-> **复核状态**：10 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-04）。
+> **复核状态**：13 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-17）。
 > 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译
 > （jadx-ai-mcp 插件已弃用；jadx-GUI 不再打开，all.jar 仅 CLI 模式）；
 > 抖音（55 个 dex）改用 `dexdump`（build-tools 36.1.0）按 class_defs 逐类验证。
@@ -22,6 +22,8 @@
 | `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
 | `status_bar_speed` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 同显示位独立网速开关，真机已验证（与仪表合并显示） |
 | `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 | 20 个 dex / 约 18 万类 | ✅ 抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`；真机已验证弹窗消失 |
+| `alarm_swap_snooze_dismiss` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：上滑 → 延迟提醒，按钮 → 关闭闹钟，文案同步 |
+| `alarm_swipe_dismiss_distance` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：10% 上滑回弹、64% 上滑放行（阈值 60% 可调） |
 
 ---
 
@@ -753,7 +755,122 @@ APK 自带 native 风控（`libsec-lib.so` / `libnetmobsec-4.4.7.so` / `libnetde
 
 ---
 
-## 12. 新增 Hook 的模板
+## 12. alarm_swap_snooze_dismiss —— 上滑改为延迟提醒 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/clock/AlarmSwapSnoozeDismissHook.kt` |
+| 目标 APK | `D:/Code/Android/APK/Hook/com.android.deskclock_18.28.0.apk`（18.28.0，真机 `versionName=18.28.0 / versionCode=1306002800`，与素材同版本） |
+| 目标进程 | `com.android.deskclock`（单进程，实测只有这一个） |
+| 实测结论 | ✅ 真机验证：上滑 → 延迟提醒（闹钟排到 1 分钟后）、按钮 → 关闭闹钟、文案同步 |
+
+### 功能语义
+
+闹钟响铃时，原本「上滑一下就关闭闹钟」，而屏幕中央的「1 分钟后提醒」按钮才是延迟提醒 ——
+前者极易误触，直接关掉闹钟。本 Hook 交换两个操作：
+
+| 操作 | 原生 | 本 Hook |
+|---|---|---|
+| 上滑 | 关闭闹钟（`EVENT_ALARM_DISMISS_BY_SWIPE`） | **延迟提醒** |
+| 点中央按钮 | 延迟提醒（`EVENT_ALARM_SNOOZED_BY_CLICK`） | **关闭闹钟** |
+
+界面文案同步交换：按钮显示「关闭闹钟」，底部提示由「滑动关闭闹钟」改成「滑动延迟提醒」。
+
+### 定位（jadx 18.28.0）
+
+```
+DefaultAlarmAlertScreenController$DragCallback#onViewReleased
+  → AlertScreenController#dismiss()          → listener.onDismiss(false)   ← 上滑
+DefaultAlarmAlertScreenController#init 里 mSnooze.setOnClickListener
+  → AlertScreenController#snooze()           → listener.onSnooze()        ← 点按钮
+AlarmAlertFullScreenActivity 实现 AlertScreenController.AlertScreenListener
+  → onDismiss(boolean) / onSnooze()
+```
+
+两条手势最终都汇聚到 Activity 的两个回调，因此 hook 放在这里可同时覆盖
+默认界面与「生活早报（`AlarmLifePostScreenController`）」界面。
+
+### 策略
+
+| Hook 点 | 处理 |
+|---|---|
+| `AlarmAlertFullScreenActivity#onSnooze()` | 改为执行原 `onDismiss(false)` 的动作：`dismiss(false, false, true)` |
+| `AlarmAlertFullScreenActivity#onDismiss(boolean)` | 改为执行原 `onSnooze()` 的动作：`snooze(true)` |
+| `DefaultAlarmAlertScreenController#init()` | 文案替换（`mSnoozeHint` / `mAlertSliderHide`） |
+
+```kotlin
+// 计时器响铃不参与交换（mTimerViewRoot 可见时原样放行）
+private fun isTimerScreen(activity: Any?): Boolean =
+    (getField(activity, "mTimerViewRoot") as? View)?.visibility == View.VISIBLE
+```
+
+### 文案替换
+
+| 位置 | 字段 | 处理 |
+|---|---|---|
+| 中央按钮 | `mSnoozeHint` | 换成应用自带 `string/close_alarm_new`（「关闭闹钟」，多语言自动适配） |
+| 按钮无障碍描述 | `mSnooze.contentDescription` | 同上 |
+| 底部提示 | `mAlertSliderHide` | 「滑动关闭闹钟」→「滑动延迟提醒」（字符串替换，非中文语种匹配不到时保持原文案） |
+
+资源名已用 `aapt2 dump resources` 复核：`string/slider_text_new` = 「滑动关闭闹钟」，
+`string/close_alarm_new` = 「关闭闹钟」。
+
+### 真机验证记录（2026-10-17 21:19~21:28）
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 21:22:00 | 手动点中央按钮 | 日志「点击提醒按钮 → 改为关闭闹钟」，闹钟消失 ✅ |
+| 21:26:00 | 上滑 350px（约 10%） | 日志「上滑 10% 未达到 60%，强制回弹」，界面保留 ✅ |
+| 21:26:28 | 上滑 1700px（约 64%） | 日志「上滑 → 改为延迟提醒」，锁屏提示「1 分钟后再响」，闹钟排到 21:27:28 ✅ |
+| 21:28:52 | 手动点中央按钮 | 日志「点击提醒按钮 → 改为关闭闹钟」，闹钟消失 ✅ |
+
+### 版本风险
+
+`onSnooze` / `onDismiss` 是公开方法、`mSnoozeHint` 等字段名未混淆，随版本变化概率低；
+字段名若变化，`getField` 返回 null 会静默跳过文案替换（行为交换仍然生效）。
+
+---
+
+## 13. alarm_swipe_dismiss_distance —— 加长上滑关闭距离 ✅
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/clock/AlarmSwipeDismissDistanceHook.kt` |
+| 目标 APK | `D:/Code/Android/APK/Hook/com.android.deskclock_18.28.0.apk`（18.28.0） |
+| 目标进程 | `com.android.deskclock` |
+| 实测结论 | ✅ 真机验证：阈值 60% 时 10% 滑动回弹、64% 滑动放行 |
+| 参数 | `threshold`：关闭所需滑动比例（30~90%，默认 60%，步进 5；拖动/松手时实时读取） |
+
+### 原生判定（jadx 18.28.0，`DefaultAlarmAlertScreenController`）
+
+```java
+private static final float SCREEN_SLIDE_THRESHOLD = 0.15f;   // 快速甩动的最小距离
+// DragCallback#onViewReleased：
+if ((yvel >= -mFlingVelocity || mScrollPercent <= 0.15f) && mScrollPercent <= 0.5f) {
+    startBounceAnimation(...);                    // 回弹
+} else {
+    settleCapturedViewAt(0, -view.getHeight());   // 关闭
+}
+```
+
+两条关闭通道：
+
+1. 滑过屏幕高度 **50%**（慢速）；
+2. 只滑 **15%** 以上 + 向上快速一甩（`mFlingVelocity`）—— 这才是误触根源。
+
+### 策略
+
+| Hook 点 | 处理 |
+|---|---|
+| `DragCallback#onViewReleased` | 读 `mScrollPercent`；未达阈值 → 强制回弹（`startBounceAnimation` + `startAlphaRestore`），不走原生逻辑；达到 → 交回原生（此时原生必然关闭） |
+| `DragCallback#onViewPositionChanged` | 原生 `alpha = 1 - pct` 在 50% 就淡完，改为 `alpha = 1 - pct/阈值`，让淡出进度与所需比例一致 |
+
+强制回弹前显式 `setField(callback, "mDetermineDismiss", false)`，避免
+`onViewDragStateChanged` 误触发 `dismiss()`。
+
+---
+
+## 14. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx

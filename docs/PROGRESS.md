@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-17（新增网易云音乐 Hook：去掉心动模式加载弹窗，真机验证通过）
+> 最后更新：2026-10-17（新增时钟 Hook：闹钟响铃界面「上滑改为延迟提醒」+「加长上滑关闭距离」）
 
 ---
 
@@ -29,6 +29,7 @@
 | 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页与仪表共用同一个独立整屏页（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 19 | 参数页形态重构（仿 HyperCeiler） | ❌ 已回退 | `HookParam` 曾新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位），`HookParamsScreen` 重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证曾通过（`分发完成：成功 6 / 共 6`），但**用户要求回退**（2026-10-04，显示不正常）：4 个 UI 文件退回重构前的逐行形态，`HookParam` 的 4 个新成员一并移除；**hook 层未受影响** |
 | 20 | 网易云音乐 `cloudmusic_no_smartplay_loading` | ✅ 完成 | 去掉心动模式加载弹窗（黑底 + 红心动画 +「正在打开心动模式...」）。抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`，replace 跳过即可；心动模式功能保留。真机验证弹窗消失、无闪退 |
+| 21 | 时钟闹钟操作 `alarm_swap_snooze_dismiss` / `alarm_swipe_dismiss_distance` | ✅ 完成 | 两个独立开关：①交换「上滑关闭」与「点击延迟提醒」（文案同步：按钮→「关闭闹钟」、底部→「滑动延迟提醒」）②加长上滑关闭距离（阈值 30~90% 可调，默认 60%，并禁用快速一甩通道）。真机验证：按钮关闭、上滑延迟（排到 1 分钟后）、10% 回弹、64% 放行 |
 
 ---
 
@@ -347,6 +348,55 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-17（新增时钟 Hook：闹钟响铃操作重映射 + 上滑距离定制）
+
+**需求**：闹钟响铃界面上滑一下就关闭（极易误触），而「1 分钟后提醒」按钮才是延迟提醒。
+用户要求二选一，最终确认**两个都做成独立开关**，且「加长上滑距离」的阈值可自定义；
+交换模式下界面文案要同步。
+
+**目标**：`com.android.deskclock` 18.28.0（真机 `versionCode=1306002800`，与素材同版本）。
+反编译：jadx CLI 全量 3,909 类。
+
+**定位（`AlarmAlertFullScreenActivity` 是两个手势的汇聚点）**
+
+```
+DragCallback#onViewReleased → AlertScreenController#dismiss() → listener.onDismiss(false)   ← 上滑
+mSnooze.setOnClickListener  → AlertScreenController#snooze()  → listener.onSnooze()        ← 点按钮
+```
+
+- **交换**：hook `onSnooze()` → 执行 `dismiss(false, false, true)`；hook `onDismiss(boolean)` → 执行 `snooze(true)`。
+  计时器响铃（`mTimerViewRoot` 可见）原样放行。
+- **文案**：hook `DefaultAlarmAlertScreenController#init()`，`mSnoozeHint` 换成 `string/close_alarm_new`（「关闭闹钟」），
+  `mAlertSliderHide` 把「关闭闹钟」替换成「延迟提醒」→「滑动延迟提醒」。
+- **距离**：原生除「滑过 50%」外还有「15% + 快速一甩」的关闭通道，误触根源就在这里。
+  hook `DragCallback#onViewReleased`，未达阈值（默认 60%，参数可调 30~90%）一律强制回弹；
+  达到才交回原生。拖动时的 `alpha` 也改成 `1 - pct/阈值`，淡出进度与所需距离一致。
+
+**真机验证（21:19~21:28）**
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 21:22:00 | 点中央按钮 | 日志「点击提醒按钮 → 改为关闭闹钟」，闹钟消失 |
+| 21:26:00 | 上滑 350px（10%） | 「上滑 10% 未达到 60%，强制回弹」，界面保留 |
+| 21:26:28 | 上滑 1700px（64%） | 「上滑 → 改为延迟提醒」，锁屏「1 分钟后再响」，闹钟排到 21:27:28 |
+| 21:28:52 | 点中央按钮 | 闹钟消失 |
+
+**踩坑记录**
+
+- LSPosed 在模块更新时会**自动把 `scope.list` 里新增的包加入作用域**（本次 `com.android.deskclock`
+  无需手动勾选，数据库 `scope` 表直接多了一行）。
+- 真机测试时批量 `input swipe` 容易与锁屏手势（上滑解锁）打架，验证上滑距离要用
+  `input swipe` 的慢速（≥250ms）并从屏幕中部起手。
+- `markActive` 在时钟进程写 RemotePreferences 报异常（`配置写入异常 … active::…`），
+  与既有的 systemui 路径一致，不影响 Hook 生效。
+
+**改动文件**
+
+- 新增 `libhook/.../rules/clock/AlarmSwapSnoozeDismissHook.kt`、`AlarmSwipeDismissDistanceHook.kt`
+- `HookCatalog`（时钟 TargetApp + 两条 HookMeta）、`HookMeta`（新增 `HookCategory.CLOCK`）、
+  `HookRegistry`、`scope.list`
+- `docs/HOOKS.md` §12、§13
 
 ### 2026-10-17（新增网易云音乐 Hook：去掉心动模式加载弹窗）
 

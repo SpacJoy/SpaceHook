@@ -46,6 +46,13 @@ object HookCatalog {
             category = AppCategory.THIRD_PARTY,
             note = "录音列表 / 播放界面",
         ),
+        // 时钟属于系统应用，但响铃界面是独立 Activity，改动只需重启时钟进程。
+        TargetApp(
+            packageName = "com.android.deskclock",
+            displayName = "时钟",
+            category = AppCategory.SYSTEM,
+            note = "闹钟响铃界面的上滑 / 延迟提醒操作",
+        ),
         // 123云盘：安装请求回归系统默认安装器的目标应用。
         // 本 Hook 不指定具体安装器 —— 它只解开应用对系统原装安装器的硬绑定，
         // 最终由谁接管取决于系统的「默认安装器」设置。
@@ -107,6 +114,47 @@ object HookCatalog {
             hookPoints = listOf(
                 "com.android.soundrecorder.fragment.N#z(android.view.View, int)",
                 "com.android.soundrecorder.fragment.ContentFragment#q1(android.os.Bundle)",
+            ),
+        ),
+        HookMeta(
+            id = "alarm_swap_snooze_dismiss",
+            name = "上滑改为延迟提醒",
+            description = "交换闹钟响铃界面的两个操作：上滑不再是「关闭闹钟」，而是延迟提醒；" +
+                "点击屏幕中央的提醒按钮则改为关闭闹钟。界面文案同步调整（按钮显示「关闭闹钟」）。" +
+                "计时器响铃界面不受影响。",
+            targetPackages = listOf("com.android.deskclock"),
+            category = HookCategory.CLOCK,
+            defaultEnabled = false,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.android.deskclock.alarm.alert.AlarmAlertFullScreenActivity#onSnooze()",
+                "com.android.deskclock.alarm.alert.AlarmAlertFullScreenActivity#onDismiss(boolean)",
+                "com.android.deskclock.alarm.alert.DefaultAlarmAlertScreenController#init()（界面文案）",
+            ),
+        ),
+        HookMeta(
+            id = "alarm_swipe_dismiss_distance",
+            name = "加长上滑关闭距离",
+            description = "上滑关闭闹钟不再由「快速一甩」触发：必须滑过设定的屏幕高度比例才关闭，" +
+                "没滑够会回弹。拖动时的淡出进度与所需比例保持一致。",
+            targetPackages = listOf("com.android.deskclock"),
+            category = HookCategory.CLOCK,
+            defaultEnabled = false,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.android.deskclock.alarm.alert.DefaultAlarmAlertScreenController\$DragCallback#onViewReleased(android.view.View, float, float)",
+                "com.android.deskclock.alarm.alert.DefaultAlarmAlertScreenController\$DragCallback#onViewPositionChanged(android.view.View, int, int, int, int)",
+            ),
+            params = listOf(
+                HookParam.IntRange(
+                    key = "threshold",
+                    title = "关闭所需滑动比例",
+                    summary = "滑动距离达到屏幕高度的该比例才关闭（原生 50%，且支持快速一甩）",
+                    default = 60,
+                    min = 30,
+                    max = 90,
+                    step = 5,
+                ),
             ),
         ),
         HookMeta(

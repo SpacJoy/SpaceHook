@@ -52,6 +52,7 @@ enum class HookCategory(val displayName: String) {
     STATUS_BAR("状态栏"),
     SYSTEM_FRAMEWORK("系统框架"),
     SOUND_RECORDER("录音机"),
+    CLOCK("时钟"),
     INSTALLER("安装器"),
     NETWORK_DISK("网盘"),
     DOUYIN("抖音"),
