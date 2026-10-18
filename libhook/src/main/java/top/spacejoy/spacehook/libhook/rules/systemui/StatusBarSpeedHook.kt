@@ -72,8 +72,20 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
 
             override val refreshMs: Int get() = cfg("refresh_ms", 1000).coerceIn(500, 5000)
 
+            /**
+             * 产出 1～2 段文本。
+             *
+             * **段数由「排布方式」说了算，不由「显示样式」说了算** —— 两个设置是正交的：
+             * 样式决定文本长什么样（值+单位 / 上下行），排布决定它占一行还是两行。
+             *
+             * 以前这里无条件按样式给段数（单行样式恒给一段），于是「排布=双行」形同虚设，
+             * 这就是「设了双排却始终单排」的原因。现在统一按 [layout] 收敛：
+             *
+             * - 双行 → 恒给两段，视图层把数字框、单位框上下堆叠
+             * - 单行 → 恒给一段（两段也合并），视图层只显示数字框
+             */
             override fun render(reader: MeterReader): List<String> {
-                // 网速是左列：左空隙 = 与通知图标之间的间距，右空隙 = 与仪表之间的间距
+                // 左空隙 = 与左侧通知图标之间的距离，右空隙 = 与右侧图标之间的距离
                 StatusBarMeterState.speedGapLeftDp = cfg("gap_left", 0)
                 StatusBarMeterState.speedGapRightDp = cfg("gap_right", 0)
                 val speed = reader.netSpeed()
@@ -84,23 +96,27 @@ internal class StatusBarSpeedHook : StatusBarMeterHookBase("status_bar_speed") {
                     if (cfg("hide_all", OFF) == ON || totalKb < threshold) return listOf("")
                 }
                 val swap = cfg("swap_places", OFF) == ON
+                val dual = layout == StatusBarMeterState.LAYOUT_DUAL
                 return when (style) {
                     STYLE_VALUE_UNIT_DUAL -> {
                         val (value, unit) = rateParts(speed.rx + speed.tx)
-                        listOf(value, unit)
+                        if (dual) listOf(value, unit) else listOf(value + unit)
                     }
 
                     STYLE_RX_TX_SINGLE -> {
                         val (first, second) = rxTx(speed, swap)
-                        listOf("$first $second")
+                        if (dual) listOf(first, second) else listOf("$first $second")
                     }
 
                     STYLE_RX_TX_DUAL -> {
                         val (first, second) = rxTx(speed, swap)
-                        listOf(first, second)
+                        if (dual) listOf(first, second) else listOf("$first $second")
                     }
 
-                    else -> listOf(rateText(speed.rx + speed.tx))
+                    else -> {
+                        val (value, unit) = rateParts(speed.rx + speed.tx)
+                        if (dual) listOf(value, unit) else listOf(value + unit)
+                    }
                 }
             }
         }

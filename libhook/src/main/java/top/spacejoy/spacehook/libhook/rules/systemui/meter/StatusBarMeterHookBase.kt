@@ -278,8 +278,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
             MeterSlot.detach()
             return
         }
-        // 间距由仪表自己的配置决定（复用原来的「左空隙」键）
+        // 间距由仪表自己的配置决定：左空隙 = 与左侧网速的距离，右空隙 = 与电池的距离
         MeterSlot.marginStartDp = StatusBarMeterState.meterGapLeftDp
+        MeterSlot.marginEndDp = StatusBarMeterState.meterGapRightDp
 
         // anchor 是原生网速视图，用来定位容器。但它可能被超级岛 / 状态栏重建清空，
         // 所以 anchor 为空时退回到「上次记下的容器」继续工作，别让仪表跟着停摆。
@@ -411,8 +412,8 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     /**
      * 只在定时器里跑的结构调整：空隙 + 靠右。
      *
-     * 列序固定「网速在左、仪表在右」：整块左边距取网速的左空隙，整块右边距取仪表的右空隙，
-     * 两列间距 = 网速的右空隙 + 仪表的左空隙 + 内置的 [COLUMN_GAP_DP]（保证默认观感不变）。
+     * 网速这个视图里只剩自己（仪表已搬去独立槽位），所以整块左边距取网速的左空隙、
+     * 右边距取右空隙，不再有「两列间距」。
      *
      * **承载视图必须保持 `WRAP_CONTENT`**：原生 XML 和 `IconManager.onCreateLayoutParams` 给的都是 wrap。
      * `MiuiStatusIconContainer.onLayout` 用 `x = 右内容边 - getNetworkSpeedWidth()` 摆放子视图，而
@@ -426,27 +427,16 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      */
     private fun applyStructure(view: View) {
         if (!view.isShown) return
-        val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
-        val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
         val density = view.resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
 
+        // 左空隙：与左侧通知图标之间的距离；右空隙：与右侧相邻图标之间的距离。
+        // 这里只作用于**网速的原生视图**（仪表槽位不走这条路），所以两侧都取网速自己的配置，
+        // 不能读 meterGap* —— 那是仪表槽位的间距。
         val padLeft = dp(StatusBarMeterState.speedGapLeftDp)
-        val padRight = dp(StatusBarMeterState.meterGapRightDp)
+        val padRight = dp(StatusBarMeterState.speedGapRightDp)
         if (view.paddingLeft != padLeft || view.paddingRight != padRight) {
             view.setPadding(padLeft, view.paddingTop, padRight, view.paddingBottom)
-        }
-
-        val dual = StatusBarMeterState.nativeContributor()?.layout == StatusBarMeterState.LAYOUT_DUAL
-        val gap = if (dual) {
-            dp(COLUMN_GAP_DP + StatusBarMeterState.speedGapRightDp + StatusBarMeterState.meterGapLeftDp)
-        } else {
-            0
-        }
-        val unitParams = unit.layoutParams as? LinearLayout.LayoutParams
-        if (unitParams != null && unitParams.leftMargin != gap) {
-            unitParams.leftMargin = gap
-            unit.layoutParams = unitParams
         }
 
         val params = view.layoutParams ?: return
@@ -557,20 +547,22 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
         val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
 
-        ensureRow(view, number, unit)
+        // 双行 = 上下堆叠（数字框在上、单位框在下）；单行 = 单位框 GONE，只剩数字框一行
+        ensureContainer(view, number, unit)
 
         if (number.translationX != 0f) number.translationX = 0f
         if (number.translationY != 0f) number.translationY = 0f
         if (unit.translationX != 0f) unit.translationX = 0f
         if (unit.translationY != 0f) unit.translationY = 0f
 
-        val lines = if (dual) 2 else 1
+        // 每个文本框只承载一段文本，各限 1 行：
+        // 双行时「上传」写在数字框、「下载」写在单位框，两个框上下相邻，自然成为两行。
         number.isSingleLine = false
-        if (number.maxLines != lines) number.maxLines = lines
+        if (number.maxLines != 1) number.maxLines = 1
         unit.isSingleLine = false
-        if (unit.maxLines != lines) unit.maxLines = lines
+        if (unit.maxLines != 1) unit.maxLines = 1
 
-        // 列内左对齐：两行时上下行才对齐成栅格（原生是 CENTER）
+        // 上下两行对不齐会很难看，统一靠左（双行时上下行对齐成栅格）
         number.gravity = Gravity.START or Gravity.CENTER_VERTICAL
         unit.gravity = Gravity.START or Gravity.CENTER_VERTICAL
 
@@ -583,44 +575,42 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     }
 
     /**
-     * 把原生 `FrameLayout network_speed_container` 换成横排 `LinearLayout`，两个文本框并排。
+     * 把原生 `FrameLayout network_speed_container` 换成竖排 `LinearLayout`，两个文本框上下堆叠。
      *
-     * 幂等：已经是「横排 + 两个子视图」就直接返回。两个 TextView 本身不重建，
-     * 只是换父容器，所以 `mNetworkSpeedNumberText` / `mNetworkSpeedUnitText` 的字段引用一直有效，
-     * 原生 `updateResources$15()` 的 `findViewById` 也照旧能找到。
+     * ## 为什么必须换容器类型
+     * 原生容器是 **FrameLayout**，两个文本框都 `gravity=CENTER` 叠在同一位置，靠数字框 -4.6dp /
+     * 单位框 +3.8dp 的 `translationY` 错位凑出上下两行；容器 `wrap_content` 高、`clipChildren=true`，
+     * 所以单位框贴在容器下沿，字号一放大就被裁。试过 BOTTOM gravity、错位归零、容器撑
+     * MATCH_PARENT、`clipChildren=false` —— **都不画**。换掉容器类型才是可靠做法。
+     *
+     * ## 为什么固定竖排
+     * 这里原本是横排，目的是让「网速占左列、仪表占右列」。仪表改用独立槽位后，
+     * 网速这个视图里只剩自己，不再需要左右并排；而「双行」要的是**上下两行**，
+     * 所以容器固定为 `VERTICAL`：数字框一行、单位框一行。单行时单位框直接 GONE。
+     *
+     * 幂等：两个 TextView 本身不重建，只换父容器，所以 `mNetworkSpeedNumberText` /
+     * `mNetworkSpeedUnitText` 的字段引用一直有效，原生 `updateResources$15()` 的
+     * `findViewById` 也照旧能找到。
      */
-    private fun ensureRow(view: View, number: TextView, unit: TextView): LinearLayout? {
+    private fun ensureContainer(view: View, number: TextView, unit: TextView): LinearLayout? {
         val container = number.parent as? ViewGroup ?: return null
         // 文本框直接挂在 NetworkSpeedView 下（代码构造的那批实例，没有 resId）：
-        // 没有中间容器可换，就把 NetworkSpeedView 本身当横排行，两个框重排一次并补列间距。
+        // 没有中间容器可换，就把 NetworkSpeedView 本身当排布容器。
         if (container === view) {
             val row = view as? LinearLayout ?: return null
-            row.orientation = LinearLayout.HORIZONTAL
+            row.orientation = LinearLayout.VERTICAL
             row.gravity = Gravity.CENTER_VERTICAL
             if (row.getTag(ROW_TAG) == null) {
                 row.setTag(ROW_TAG, java.lang.Boolean.TRUE)
                 if (number.parent === row) row.removeView(number)
                 if (unit.parent === row) row.removeView(unit)
-                row.addView(
-                    number,
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ),
-                )
-                row.addView(
-                    unit,
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).also { it.leftMargin = view.dp(COLUMN_GAP_DP) },
-                )
-                logd("容器改为横排(内联): #${System.identityHashCode(view)} NetworkSpeedView 直接横排")
+                row.addView(number, wrapLp())
+                row.addView(unit, wrapLp())
             }
             return row
         }
         if (container is LinearLayout &&
-            container.orientation == LinearLayout.HORIZONTAL &&
+            container.orientation == LinearLayout.VERTICAL &&
             container.childCount == 2
         ) {
             return container
@@ -631,36 +621,30 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         return try {
             val params = container.layoutParams
             val row = LinearLayout(view.context)
-            row.orientation = LinearLayout.HORIZONTAL
+            row.orientation = LinearLayout.VERTICAL
             row.gravity = Gravity.CENTER_VERTICAL
 
             container.removeView(number)
             container.removeView(unit)
 
-            row.addView(
-                number,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-            row.addView(
-                unit,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { leftMargin = view.dp(COLUMN_GAP_DP) },
-            )
+            row.addView(number, wrapLp())
+            row.addView(unit, wrapLp())
 
             root.removeViewAt(index)
             root.addView(row, index, params)
-            logd("容器改为横排: ${container.javaClass.simpleName} → LinearLayout(HORIZONTAL)")
+            logd("容器改为竖排: ${container.javaClass.simpleName} → LinearLayout(VERTICAL)")
             row
         } catch (t: Throwable) {
-            logw("容器改横排失败：${t.message}")
+            logw("容器改竖排失败：${t.message}")
             null
         }
     }
+
+    /** 两个文本框自己的布局参数：都由内容撑开 */
+    private fun wrapLp() = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+    )
 
     /**
      * 屏幕上只留一个承载视图。
@@ -772,10 +756,7 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
         const val FIELD_NUMBER_TEXT = "mNetworkSpeedNumberText"
         const val FIELD_UNIT_TEXT = "mNetworkSpeedUnitText"
 
-        /** 左右两列之间的间距（dp） */
-        const val COLUMN_GAP_DP = 6
-
-        /** 标记「NetworkSpeedView 本身已重排成横排行」，避免每帧重排 */
+        /** 标记「NetworkSpeedView 本身已重排成竖排行」，避免每帧重排 */
         private const val ROW_TAG = 0x7F0F0001
 
         val STYLE_REFRESH_METHODS = arrayOf("onDensityOrFontScaleChanged", "onMiuiThemeChanged")

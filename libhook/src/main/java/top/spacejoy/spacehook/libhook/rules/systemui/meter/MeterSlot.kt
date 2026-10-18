@@ -98,14 +98,22 @@ internal object MeterSlot {
         // 被摘掉过（IconManager.destroy() 会 removeAllViews）→ 先脱离旧父容器
         (view.parent as? ViewGroup)?.removeView(view)
 
-        // 与左侧相邻图标留一点距离，否则会紧贴电池/信号
+        // 两侧留白用**视图自身的 padding** 表达，而不是 layoutParams 的 margin。
+        //
+        // 容器 onLayout 按「子 View 宽度 + padding」累加 translationX 来摆位置，
+        // 它会读 getPaddingStart()/getPaddingEnd()，所以 padding 能被正确计入；
+        // 而 margin 在它的坐标系里完全不被考虑，设了也没用。
         val density = container.resources.displayMetrics.density
+        val padStart = (marginStartDp * density).toInt()
+        val padEnd = (marginEndDp * density).toInt()
+        if (view.paddingLeft != padStart || view.paddingRight != padEnd) {
+            view.setPadding(padStart, view.paddingTop, padEnd, view.paddingBottom)
+        }
         val params = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply {
             gravity = Gravity.CENTER_VERTICAL
-            marginStart = (marginStartDp * density).toInt()
         }
 
         return try {
@@ -300,6 +308,15 @@ internal object MeterSlot {
 
     /** 与左侧相邻图标的间距（dp），由 Hook 侧按配置写入 */
     @Volatile var marginStartDp = 6
+
+    /**
+     * 与右侧相邻图标（通常是电池）的间距（dp）。
+     *
+     * 槽位视图排在容器最右侧，右边紧邻电池图标，太贴会显得挤。
+     */
+    @Volatile var marginEndDp = 6
+
+
 
     /** 上次从原生网速视图读到的文字颜色 / 字号，anchor 消失后沿用 */
     private var lastTextColor = 0

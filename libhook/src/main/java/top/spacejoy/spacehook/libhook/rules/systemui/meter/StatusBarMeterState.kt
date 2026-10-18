@@ -180,7 +180,19 @@ internal object StatusBarMeterState {
         // 有贡献者但都没内容 = 主动留空（例如设了「仅充电时显示」而当前没插电），
         // 这时要写空串把原生内容顶掉，而不是交还原生。
         if (parts.isEmpty()) return "" to ""
-        val result = if (parts.size >= 2) parts[0] to parts[1] else parts[0] to ""
+
+        // 排布决定「两段文本怎么落到两个文本框上」：
+        // - 单行：全部用空格连成一行，只写数字框，单位框留空（→ 单位框会被 GONE）
+        // - 双行：第一段写数字框、其余写单位框，由视图层把两个框**上下堆叠**
+        //
+        // 注意这里是「按排布切分」，不是「按段数切分」。以前用 parts.size >= 2 直接切，
+        // 会把「显式设了单行但样式产出两段」的情况也切成两列，结果只能是单行。
+        val single = nativeContributor()?.layout == LAYOUT_SINGLE
+        val result = if (single) {
+            parts.joinToString(" ") to ""
+        } else {
+            parts[0] to parts.drop(1).joinToString(" ")
+        }
         if (result != lastComposed) {
             lastComposed = result
             onCompose?.invoke(parts, result)

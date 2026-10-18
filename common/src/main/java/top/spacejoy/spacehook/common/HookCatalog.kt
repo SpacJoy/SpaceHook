@@ -384,7 +384,7 @@ object HookCatalog {
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
-                    summary = "单行 = 全部指标挤成一行；双行 = 网速在左列、仪表在右列，列内各占两行",
+                    summary = "单行 = 全部指标挤成一行；双行 = 分上下两行显示（各指标均分到两行）",
                     default = 1,
                     options = listOf(
                         HookParam.Select.Option(0, "单行"),
@@ -508,7 +508,7 @@ object HookCatalog {
                 HookParam.IntRange(
                     key = "gap_left",
                     title = "左空隙",
-                    summary = "仪表左边缘与左侧相邻图标（通常是电池）之间的间距（dp）",
+                    summary = "仪表左边缘与左侧相邻内容（通常是网速）之间的间距（dp）",
                     default = 6,
                     min = 0,
                     max = 30,
@@ -516,8 +516,8 @@ object HookCatalog {
                 HookParam.IntRange(
                     key = "gap_right",
                     title = "右空隙",
-                    summary = "仪表右边缘与状态栏图标之间的额外间距（dp）",
-                    default = 0,
+                    summary = "仪表右边缘与右侧相邻图标（通常是电池）之间的间距（dp）",
+                    default = 6,
                     min = 0,
                     max = 30,
                 ),
@@ -553,14 +553,14 @@ object HookCatalog {
                 HookParam.Select(
                     key = "style",
                     title = "显示样式",
-                    summary = "决定这段文本长什么样：值和单位合成一段 / 拆成上下两段 / " +
-                        "上下行并排 / 上下行分两行。「排布方式」选「跟随样式」时，行数也由它推导",
+                    summary = "决定这段文本显示什么内容：值+单位 / 值、单位分开 / " +
+                        "上下行并排 / 上下行分开。实际显示一行还是两行，由下面的「排布方式」决定",
                     default = 0,
                     options = listOf(
-                        HookParam.Select.Option(0, "值和单位单行"),
-                        HookParam.Select.Option(1, "值和单位双排"),
-                        HookParam.Select.Option(2, "上下行单行"),
-                        HookParam.Select.Option(3, "上下行双排"),
+                        HookParam.Select.Option(0, "值和单位合并"),
+                        HookParam.Select.Option(1, "值和单位分开"),
+                        HookParam.Select.Option(2, "上下行合并"),
+                        HookParam.Select.Option(3, "上下行分开"),
                     ),
                 ),
                 HookParam.Select(
@@ -576,8 +576,8 @@ object HookCatalog {
                 HookParam.Select(
                     key = "layout",
                     title = "排布方式",
-                    summary = "单行 = 上传、下载排在同一行；双行 = 上传、下载分两行放在左列。" +
-                        "与「功耗/温度仪表」同时开启时，网速占左列、仪表占右列",
+                    summary = "单行 = 全部内容排在同一行；双行 = 分上下两行显示。" +
+                        "这里的「双行」决定行数，与「显示样式」无关",
                     default = -1,
                     options = listOf(
                         HookParam.Select.Option(-1, "跟随样式"),
@@ -726,7 +726,7 @@ object HookCatalog {
                 HookParam.IntRange(
                     key = "gap_right",
                     title = "右空隙",
-                    summary = "网速右边缘与仪表之间的额外间距（dp）；仪表没开时即整块右边距",
+                    summary = "网速右边缘与右侧相邻图标（通常是电池）之间的间距（dp）",
                     default = 0,
                     min = 0,
                     max = 30,
