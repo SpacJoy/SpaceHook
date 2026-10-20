@@ -870,7 +870,7 @@ if ((yvel >= -mFlingVelocity || mScrollPercent <= 0.15f) && mScrollPercent <= 0.
 
 ---
 
-## 14. amap_default_route —— 高德默认出行方式 🟡 待真机验证
+## 14. amap_default_route —— 高德默认出行方式 ✅
 
 | 项 | 值 |
 |---|---|
@@ -926,12 +926,30 @@ PlanHomePresenter#onPageCreated / #onNewIntent
 除 `h15#a` 外，同时挂 `PlanHomeService#getInitRouteType`（它只是转发给 `h15#a`）。
 重复拦截安全：副本已带明确方式，第二层走「已指定」分支原样放行。
 
-### 待验证项
+### 生效范围（`scope`）
 
-- 冷启动后日志应出现「服务锚点」「结构校验通过」「已挂载路线初始化」「已挂载冗余入口」
-- 首页路线入口默认落在所选方式；公交方案能正常返回
-- 页内切驾车后退出重进 → 回到默认方式
-- 默认公交时用首页专门的「驾车」入口 → 保持驾车
+高德的 JS 动作 `routePlan`（`hj5`）里是 `jSONObject.optInt("routeType", -1)`，
+但首页推荐卡片的导航按钮走的是 `optInt("routeType")` 形态 —— **字段缺失时兜底返回 0**，
+而 `RouteType.getType(0)` 正是 `CAR`。于是卡片把「没指定」表达成了「驾车」，
+被「保留明确指定」的规则放行。
+
+因此增加 `scope` 选项：
+
+| 值 | 含义 | 适用 |
+|---|---|---|
+| 0（默认） | 仅未指定时覆盖 | 保留专门驾车入口、带方式的第三方链接 |
+| 1 | 全部入口都覆盖 | 卡片导航按钮也跟随默认方式；代价是专门入口也会被改 |
+
+### 真机验证记录（2026-10-20）
+
+| 场景 | 结果 |
+|---|---|
+| 高德 17.01.0.2012 冷启动 | ✅ 日志：「服务锚点：PlanHomeService#getInitRouteType」→「结构校验通过：h15#a」→「已挂载路线初始化」→「已挂载冗余入口」 |
+| 输入目的地后点导航 | ✅ 日志「已应用默认出行方式：BUS」，结果随设置变化 |
+| 首页推荐卡片导航按钮 | ⚠️ 修复前恒为驾车（日志「不覆盖：请求方式=CAR」）；新增 `scope` 后可覆盖 |
+| 非主进程（locationservice / widgetProvider） | ✅ 日志「非主进程，跳过」 |
+
+已知遗留：`markActive` 在目标进程写 RemotePreferences 报异常（与 systemui 等既有路径一致，不影响 Hook 生效）。
 
 ---
 
