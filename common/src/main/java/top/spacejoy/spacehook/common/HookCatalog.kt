@@ -74,6 +74,12 @@ object HookCatalog {
             category = AppCategory.THIRD_PARTY,
             note = "心动模式加载弹窗",
         ),
+        TargetApp(
+            packageName = "com.autonavi.minimap",
+            displayName = "高德地图",
+            category = AppCategory.THIRD_PARTY,
+            note = "普通路线规划的默认出行方式",
+        ),
     )
 
     // ==================== Hook 功能 ====================
@@ -102,6 +108,23 @@ object HookCatalog {
                 "com.miui.clock.module.ClockBean#setColonShow",
                 "com.android.keyguard.ota.KeyguardOTAInteractor#generateEditorInfo",
                 "android.provider.Settings\$Secure#putString",
+            ),
+        ),
+        HookMeta(
+            id = "mini_heads_up",
+            name = "悬浮通知迷你化",
+            description = "把全部悬浮通知（横幅）从多行大卡片压成单行小卡片：标题与正文合并成一行、" +
+                "背景透明，头像与按钮保留。来电通知与自定义 View 通知（音乐播放器等）自动维持原样，" +
+                "避免内容被单行模板截断。",
+            targetPackages = listOf("com.android.systemui"),
+            category = HookCategory.SYSTEM_UI,
+            defaultEnabled = true,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "com.android.systemui.statusbar.notification.row.NotificationRowContentBinderInjectorImpl#isTransparent(android.content.Context)",
+                "com.android.systemui.statusbar.notification.row.NotificationRowContentBinderInjectorImpl#useOneLine(android.content.Context, android.content.Context, android.app.Notification)",
+                "com.miui.systemui.notification.MiuiBaseNotifUtil#isCustomViewNotification(android.app.Notification)",
+                "com.miui.systemui.notification.MiuiBaseNotifUtil#isGlobalInCallNotification(android.content.Context, java.lang.String, android.app.Notification)",
             ),
         ),
         HookMeta(
@@ -739,6 +762,37 @@ object HookCatalog {
                     min = 500,
                     max = 5000,
                     step = 500,
+                ),
+            ),
+        ),
+        HookMeta(
+            id = "amap_default_route",
+            name = "默认出行方式",
+            description = "从首页「路线」或普通搜索的「路线」进入时，默认选中你指定的出行方式" +
+                "（公共交通 / 步行 / 骑行 / 驾车）。路线页内仍可随时手动切换；" +
+                "专门的驾车等入口、以及调用方已明确指定方式的链接保持原样。",
+            targetPackages = listOf("com.autonavi.minimap"),
+            category = HookCategory.AMAP,
+            defaultEnabled = false,
+            requiresReboot = true,
+            hookPoints = listOf(
+                "defpackage.h15#a(defpackage.g15, com.amap.bundle.planhome.api.IPredictResultCallback)（17.01.0.2012，混淆名，按结构特征定位）",
+                "调用链：PlanHomePresenter#onPageCreated / #onNewIntent → h15.a",
+                "defpackage.p91#a(defpackage.s91, …)（15.10.x 的历史位置，同一结构）",
+            ),
+            params = listOf(
+                HookParam.Select(
+                    key = "mode",
+                    title = "默认出行方式",
+                    summary = "普通路线规划进入时默认选中的方式；「跟随高德」= 不干预，沿用高德自己的上次选择",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "跟随高德"),
+                        HookParam.Select.Option(1, "公共交通"),
+                        HookParam.Select.Option(2, "步行"),
+                        HookParam.Select.Option(3, "骑行"),
+                        HookParam.Select.Option(4, "驾车"),
+                    ),
                 ),
             ),
         ),

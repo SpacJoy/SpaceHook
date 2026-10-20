@@ -1,5 +1,6 @@
 package top.spacejoy.spacehook.libhook.base
 
+import top.spacejoy.spacehook.libhook.rules.amap.AmapDefaultRouteHook
 import top.spacejoy.spacehook.libhook.rules.cloudmusic.CloudMusicNoSmartPlayLoadingHook
 import top.spacejoy.spacehook.libhook.rules.clock.AlarmSwapSnoozeDismissHook
 import top.spacejoy.spacehook.libhook.rules.clock.AlarmSwipeDismissDistanceHook
@@ -11,6 +12,7 @@ import top.spacejoy.spacehook.libhook.rules.systemui.CardStyleTilesHook
 import top.spacejoy.spacehook.libhook.rules.systemui.ControlCenterOrderHook
 import top.spacejoy.spacehook.libhook.rules.systemui.DeviceCenterSizeHook
 import top.spacejoy.spacehook.libhook.rules.systemui.LockColonHook
+import top.spacejoy.spacehook.libhook.rules.systemui.MiniHeadsUpHook
 import top.spacejoy.spacehook.libhook.rules.systemui.StatusBarMeterHook
 import top.spacejoy.spacehook.libhook.rules.systemui.StatusBarSpeedHook
 
@@ -28,6 +30,7 @@ object HookRegistry {
     private val factories: Map<String, () -> BaseHook> = mapOf(
         // ===== 系统界面 =====
         "lock_colon" to { LockColonHook() },
+        "mini_heads_up" to { MiniHeadsUpHook() },
         "device_center_size" to { DeviceCenterSizeHook() },
         "cc_card_order" to { ControlCenterOrderHook() },
         "cc_card_tiles" to { CardStyleTilesHook() },
@@ -51,6 +54,9 @@ object HookRegistry {
 
         // ===== 网易云音乐 =====
         "cloudmusic_no_smartplay_loading" to { CloudMusicNoSmartPlayLoadingHook() },
+
+        // ===== 高德地图 =====
+        "amap_default_route" to { AmapDefaultRouteHook() },
 
         // ===== 系统框架（system_server） =====
         "adb_stay_awake" to { AdbStayAwakeHook() },

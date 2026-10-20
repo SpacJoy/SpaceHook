@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-18（新增状态栏仪表独立槽位；新增 `docs/新手代码地图.md`）
+> 最后更新：2026-10-20（新增高德默认出行方式 `amap_default_route`，待真机验证）
 
 ---
 
@@ -348,6 +348,48 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-20（新增：高德地图默认出行方式）
+
+**需求**：参考 `Referenzprojekt/AmapRouteDefault`，移植「修改高德默认导航/出行方式」功能。
+
+**关键差异**：参考项目只适配了高德 **15.10.1.2063**（初始化方法在 `p91#a(s91, cb)`），
+而真机实际是 **17.01.0.2012**（`versionCode=170100`，从 `/data/app/…/base.apk` 提取，194 MB / 8 个 dex）。
+新版的初始化方法已变成 `h15#a(g15, cb)`，参考项目的 DexKit 字符串特征
+（`initRouteType() routeTypeSource`、`tab_recommend_filter`）**在本版已全部消失**，
+所以不能直接搬 DexKit 方案，改为按结构特征定位。
+
+**新定位方案**：
+
+1. 候选类：`h15`（17.01）/ `p91`（15.10），dex 里是默认包名（`Lh15;`），jadx 显示为 `defpackage.h15`
+2. 未混淆锚点：`com.amap.bundle.planhome.PlanHomeService#getInitRouteType` 直接转发给初始化方法，
+   拿它的第 1 个参数类型交叉校验候选请求类
+3. 结构校验：静态 void 双参 + 单方法回调接口 + 请求类无父类有无参构造 +
+   恰好一个枚举字段（DEFAULT/CAR/BUS/ONFOOT/RIDE = -1/0/1/2/3）+ 至少 2 个 POI 形态字段
+4. 匹配不唯一 / 校验不过 → 不挂载，保持高德原样
+
+**替换语义**（与参考项目一致，刻意保留的边界）：
+
+- 请求已明确指定方式 → 不覆盖（专门驾车入口 / 带方式的第三方 scheme 不受影响）
+- 请求为 `null` → 不覆盖（不硬造空请求，避免挤掉高德自己的推荐兜底）
+- 页内手动切换 → 不拦；复制请求副本修改，高德持有的原始请求不变
+- 改设置无需重启高德
+
+**冗余入口**：除 `h15#a` 外同时挂 `PlanHomeService#getInitRouteType`，
+重复拦截安全（副本已带明确方式，第二层走「已指定」分支原样放行）。
+
+**验证状态**：`BUILD SUCCESSFUL`（debug APK 已产出），**真机验证未完成**。
+
+**改动文件**：
+
+- 新增 `libhook/.../rules/amap/AmapDefaultRouteHook.kt`、`AmapRouteAdapter.kt`
+- `HookCatalog`（高德 TargetApp + `amap_default_route`）、`HookMeta`（新增 `HookCategory.AMAP`）、
+  `HookRegistry`、`scope.list`
+- `docs/HOOKS.md` §14
+
+**⚠️ 事故记录（教训）**：为省事直接改 LSPosed 的 `modules_config.db` 并 `killall lspd`，
+导致 lspd 无法再拉起（启动即 SIGSEGV，`fault addr 0x314`），需重启设备恢复。
+**今后一律不碰 `/data/adb/lspd/` 下的任何文件与进程**，开关与作用域只能由用户在管理器里操作。
 
 ### 2026-10-18（修复：网速「排布方式=双行」始终显示单行）
 

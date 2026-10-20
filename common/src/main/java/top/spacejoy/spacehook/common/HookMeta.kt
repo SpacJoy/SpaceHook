@@ -56,6 +56,7 @@ enum class HookCategory(val displayName: String) {
     INSTALLER("安装器"),
     NETWORK_DISK("网盘"),
     DOUYIN("抖音"),
+    AMAP("高德地图"),
     OTHER("其他"),
 }
 

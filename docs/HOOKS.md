@@ -870,7 +870,72 @@ if ((yvel >= -mFlingVelocity || mScrollPercent <= 0.15f) && mScrollPercent <= 0.
 
 ---
 
-## 14. 新增 Hook 的模板
+## 14. amap_default_route —— 高德默认出行方式 🟡 待真机验证
+
+| 项 | 值 |
+|---|---|
+| 实现类 | `libhook/.../rules/amap/AmapDefaultRouteHook.kt` + `AmapRouteAdapter.kt` |
+| 目标 APK | 真机提取 `高德地图_17.01.0.2012.apk`（`versionCode=170100`，8 个 dex） |
+| 目标进程 | `com.autonavi.minimap`（仅主进程） |
+| 参考项目 | `D:/Code/Android/Projects/Referenzprojekt/AmapRouteDefault`（15.10.1.2063） |
+
+### 功能
+
+从首页「路线」或普通搜索的「路线」进入时，默认落在指定的出行方式
+（公共交通 / 步行 / 骑行 / 驾车）；选「跟随高德」则不干预。页内仍可手动切换。
+
+### 调用链（17.01 反编译 `classes4.dex`）
+
+```
+PlanHomePresenter#onPageCreated / #onNewIntent
+  → h15.a(g15 request, IPredictResultCallback cb)        ← 本 Hook 挂这里
+      ├─ request.a != null → SELECT    ：调用方已明确指定，直接用它
+      ├─ 有起终点          → REASONABLE：走推荐策略
+      └─ 都没有            → DEFAULT   ：回落到「上次使用的方式」ij5.b()
+  → cb.onPredictResult(s55) → lu#onPredictResult → NewPlanPageDataBuilder.c(...)
+```
+
+替换的正是 `h15.a` 的**第 1 个参数**：请求未指定方式时，塞一份
+「方式 = 用户选择」的副本，后续仍走高德自己的显式分支，所以页面 / 方案查询 / 切换照常。
+
+### 为什么按结构定位而不是硬编码名字
+
+`h15` / `g15` / 字段名全是 R8 混淆名，15.10 是 `p91#a(s91, cb)`、17.01 变成 `h15#a(g15, cb)`。
+`AmapRouteAdapter` 按结构逐项校验（详见类注释）：
+
+| # | 校验项 |
+|---|---|
+| 1 | 静态、返回 `void`、正好 2 个参数 |
+| 2 | 第 2 个参数是**单抽象方法**的回调接口，方法 `(1 参) -> void` |
+| 3 | 第 1 个参数是具体类、无父类、有无参构造、字段非 final |
+| 4 | 请求类里**恰好一个枚举字段**，含 DEFAULT/CAR/BUS/ONFOOT/RIDE，且数值为 -1/0/1/2/3 |
+| 5 | 请求类里至少 2 个 POI 形态字段（`getName():String` + `getPoint():非基本`） |
+| 6 | **未混淆锚点**：`com.amap.bundle.planhome.PlanHomeService#getInitRouteType` 的第 1 个参数类型必须与候选请求类一致 |
+
+匹配不唯一 / 校验不过 → 安静不挂载，保持高德原样。
+
+### 边界（刻意保留）
+
+- 请求已有明确方式（专门驾车入口、带方式的第三方 scheme）→ 不覆盖
+- 请求为 `null` → 不覆盖（硬造空请求会挤掉高德的推荐兜底）
+- 页内手动切换 → 不拦；退出重进回到默认方式
+- 改设置无需重启高德，下次进入普通路线页生效
+
+### 冗余入口
+
+除 `h15#a` 外，同时挂 `PlanHomeService#getInitRouteType`（它只是转发给 `h15#a`）。
+重复拦截安全：副本已带明确方式，第二层走「已指定」分支原样放行。
+
+### 待验证项
+
+- 冷启动后日志应出现「服务锚点」「结构校验通过」「已挂载路线初始化」「已挂载冗余入口」
+- 首页路线入口默认落在所选方式；公交方案能正常返回
+- 页内切驾车后退出重进 → 回到默认方式
+- 默认公交时用首页专门的「驾车」入口 → 保持驾车
+
+---
+
+## 15. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx
