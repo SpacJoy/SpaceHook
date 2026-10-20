@@ -238,13 +238,14 @@ internal class AmapRouteAdapter private constructor(
      *
      * @param input 原始请求（null 表示高德根本没带请求，此时不做覆盖，交给它自己走兜底分支）
      * @param modeKey 用户选择：OFF / BUS / ONFOOT / RIDE / CAR
+     * @param force 是否连「调用方已指定」的方式也一起覆盖
      */
-    fun replacement(input: Any?, modeKey: String): Any? {
+    fun replacement(input: Any?, modeKey: String, force: Boolean): Any? {
         if (input == null) return null                        // 无请求：不构造空请求，避免干扰兜底分支
         val desired = modes[modeKey] ?: return null          // OFF / 未知取值：不覆盖
         if (desired === automatic) return null
         val explicit = routeField.get(input)
-        if (explicit != null && explicit !== automatic) return null   // 调用方已明确指定
+        if (!force && explicit != null && explicit !== automatic) return null   // 调用方已明确指定
         val copy = requestConstructor.newInstance()
         for (field in copyFields) field.set(copy, field.get(input))
         routeField.set(copy, desired)

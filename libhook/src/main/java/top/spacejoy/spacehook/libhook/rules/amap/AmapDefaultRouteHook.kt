@@ -52,6 +52,7 @@ class AmapDefaultRouteHook : BaseHook("amap_default_route") {
         const val AMAP_PACKAGE = "com.autonavi.minimap"
 
         const val CFG_MODE = "mode"
+        const val CFG_SCOPE = "scope"
 
         /** 0 = 跟随高德（不覆盖） */
         const val MODE_OFF = 0
@@ -59,6 +60,10 @@ class AmapDefaultRouteHook : BaseHook("amap_default_route") {
         const val MODE_ONFOOT = 2
         const val MODE_RIDE = 3
         const val MODE_CAR = 4
+
+        /** 0 = 仅未指定时（保留专门入口 / 第三方链接的明确选择）1 = 全部入口都覆盖 */
+        const val SCOPE_SMART = 0
+        const val SCOPE_ALL = 1
 
         /** 配置值 → 枚举常量名 */
         val MODE_KEYS = mapOf(
@@ -70,6 +75,10 @@ class AmapDefaultRouteHook : BaseHook("amap_default_route") {
     }
 
     private val cfgMode: Int get() = PrefsBridge.getInt(HookPrefs.configKey(id, CFG_MODE), MODE_OFF)
+    private val cfgScope: Int get() = PrefsBridge.getInt(HookPrefs.configKey(id, CFG_SCOPE), SCOPE_SMART)
+
+    /** 是否连「调用方已指定」的方式也一起覆盖 */
+    private val forceOverride: Boolean get() = cfgScope == SCOPE_ALL
 
     override fun onHook() {
         // 只在高德主进程里工作：子进程（推送 / 定位等）不需要也不应该改路线决策
@@ -107,21 +116,21 @@ class AmapDefaultRouteHook : BaseHook("amap_default_route") {
         }
     }
 
-    /** 拦截体：没指定方式就换成默认方式，已指定就原样放行 */
+    /** 拦截体：按设置决定要不要换成默认方式 */
     private fun applyDefault(adapter: AmapRouteAdapter, chain: Chain): Any? {
         val modeKey = MODE_KEYS[cfgMode] ?: return chain.proceed()
         val original = chain.getArg(0)
         val replacement = try {
-            adapter.replacement(original, modeKey)
+            adapter.replacement(original, modeKey, forceOverride)
         } catch (t: Throwable) {
             loge("构造默认方式请求失败，回退原始行为", t)
             null
         }
         if (replacement == null) {
-            logd("不覆盖：请求方式=${adapter.explicitModeOf(original) ?: "null"} 目标=$modeKey")
+            logd("不覆盖：请求方式=${adapter.explicitModeOf(original) ?: "null"} 目标=$modeKey 全量=${forceOverride}")
             return chain.proceed()
         }
-        logd("已应用默认出行方式：$modeKey")
+        logd("已应用默认出行方式：$modeKey（原请求=${adapter.explicitModeOf(original) ?: "null"}）")
         // 只改参数副本，高德持有的原始请求保持原样
         return chain.proceed(arrayOf(replacement, chain.getArg(1)))
     }

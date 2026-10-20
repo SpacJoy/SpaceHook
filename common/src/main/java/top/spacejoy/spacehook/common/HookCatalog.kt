@@ -794,6 +794,17 @@ object HookCatalog {
                         HookParam.Select.Option(4, "驾车"),
                     ),
                 ),
+                HookParam.Select(
+                    key = "scope",
+                    title = "生效范围",
+                    summary = "「仅未指定时」保留专门的驾车入口与带方式的第三方链接；" +
+                        "若首页推荐卡片的导航按钮仍走驾车，改成「全部入口」",
+                    default = 0,
+                    options = listOf(
+                        HookParam.Select.Option(0, "仅未指定时"),
+                        HookParam.Select.Option(1, "全部入口"),
+                    ),
+                ),
             ),
         ),
     )
