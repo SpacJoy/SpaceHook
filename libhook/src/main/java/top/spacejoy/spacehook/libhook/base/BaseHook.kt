@@ -43,6 +43,9 @@ abstract class BaseHook(val id: String) {
     val classLoader: ClassLoader get() = ctx.classLoader
     val packageName: String get() = ctx.packageName
 
+    /** 目标 App 的 base.apk 路径（DexKit 扫描用；system_server 为 null） */
+    val apkPath: String? get() = ctx.apkPath
+
     /** 由框架注入运行时上下文 */
     fun attach(ctx: HookContext) {
         this.ctx = ctx
@@ -50,6 +53,65 @@ abstract class BaseHook(val id: String) {
 
     /** 子类在此编写具体 Hook 逻辑 */
     abstract fun onHook()
+
+    // ==================== 生效状态统计 ====================
+    //
+    // 用于「启动提示」汇总：装了几个、几个没装上。
+    // 只统计**明确判定为失败**的情况（目标类/方法解析不到），
+    // 不统计「本来就该什么都不做」的分支，避免误报。
+
+    private var installedCount = 0
+    private var failedCount = 0
+
+    /** 单个 Hook 的装载结果 */
+    enum class LoadResult {
+        /** 装上了且没有失败 */
+        OK,
+
+        /** 有关键锚点解析不到，需要适配新版 */
+        FAILED,
+
+        /** 主动跳过（如非主进程），属于正常的不适用 */
+        SKIPPED,
+    }
+
+    /** 成功挂上的拦截器数量 */
+    val installedHooks: Int get() = installedCount
+
+    /** 解析失败的关键锚点数量 */
+    val failedAnchors: Int get() = failedCount
+
+    /**
+     * 装载结果（供启动提示汇总）：
+     * - [LoadResult.OK]        至少装上一个，且没有失败
+     * - [LoadResult.FAILED]    有关键锚点解析不到（哪怕部分装上了，也算需要适配）
+     * - [LoadResult.SKIPPED]   什么都没做 —— 例如「非主进程，主动跳过」，
+     *                          属于正常的「不适用」，不算失败
+     */
+    val loadResult: LoadResult
+        get() = when {
+            failedCount > 0 -> LoadResult.FAILED
+            installedCount > 0 -> LoadResult.OK
+            else -> LoadResult.SKIPPED
+        }
+
+    /** 是否确实生效 */
+    val isEffective: Boolean get() = loadResult == LoadResult.OK
+
+    /**
+     * 标记一次「关键锚点解析失败」。
+     *
+     * 场景：目标类/方法因版本更新改名后找不到。**必须调用**，
+     * 否则 Hook 会安静地什么都不做，UI 与日志都无法区分「失效」和「正常」。
+     */
+    protected fun markAnchorFailed(reason: String) {
+        failedCount++
+        loge(reason)
+    }
+
+    private fun countInstalled(handle: HookHandle?) {
+        if (handle != null) installedCount++ else failedCount++
+    }
 
     // ==================== 日志 ====================
 
@@ -77,10 +139,13 @@ abstract class BaseHook(val id: String) {
         return null
     }
 
-    /** 查找类，找不到时打一条警告日志 */
+    /** 查找类，找不到时打一条警告日志并记为一次失败 */
     fun requireClass(name: String): Class<*>? {
         val clazz = findClass(name)
-        if (clazz == null) logw("目标类不存在，跳过：$name")
+        if (clazz == null) {
+            logw("目标类不存在，跳过：$name")
+            failedCount++
+        }
         return clazz
     }
 
@@ -137,9 +202,11 @@ abstract class BaseHook(val id: String) {
                 .setPriority(priority)
                 .setExceptionMode(exceptionMode)
                 .intercept(Hooker { chain -> block(chain) })
+            countInstalled(handle)
             handle
         } catch (t: Throwable) {
             loge("hook 失败：${describe(executable)}", t)
+            failedCount++
             null
         }
     }
@@ -157,6 +224,7 @@ abstract class BaseHook(val id: String) {
         val method = findMethod(clazz, methodName, paramTypes)
         if (method == null) {
             logw("方法不存在，跳过：${clazz.name}#$methodName")
+            failedCount++
             return null
         }
         return hookExecutable(method) { chain ->
@@ -184,6 +252,7 @@ abstract class BaseHook(val id: String) {
         val method = findMethod(clazz, methodName, paramTypes)
         if (method == null) {
             logw("方法不存在，跳过：${clazz.name}#$methodName")
+            failedCount++
             return null
         }
         return hookExecutable(method, priority) { chain ->
@@ -205,6 +274,7 @@ abstract class BaseHook(val id: String) {
         val methods = findMethods(clazz, methodName)
         if (methods.isEmpty()) {
             logw("方法不存在，跳过：${clazz.name}#$methodName")
+            failedCount++
             return emptyList()
         }
         logd("${clazz.simpleName}#$methodName 发现 ${methods.size} 个重载")
@@ -234,6 +304,7 @@ abstract class BaseHook(val id: String) {
         }
         if (ctor == null) {
             logw("构造方法不存在，跳过：${clazz.name}(...${paramTypes.size})")
+            failedCount++
             return null
         }
         return hookExecutable(ctor) { chain ->
@@ -249,7 +320,10 @@ abstract class BaseHook(val id: String) {
     /** 拦截全部构造方法 */
     fun hookAllConstructors(clazz: Class<*>, block: (Chain) -> Any?): List<HookHandle> {
         val ctors = clazz.declaredConstructors
-        if (ctors.isEmpty()) return emptyList()
+        if (ctors.isEmpty()) {
+            failedCount++
+            return emptyList()
+        }
         logd("${clazz.simpleName} 发现 ${ctors.size} 个构造方法")
         return ctors.mapNotNull { ctor ->
             hookExecutable(ctor) { chain ->

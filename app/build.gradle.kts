@@ -13,8 +13,19 @@ android {
         applicationId = "top.spacejoy.spacehook"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        // ==================== 版本号（语义化 SemVer）====================
+        // versionName = major.minor.patch
+        //   major：不兼容的大改 / 架构调整
+        //   minor：新增功能
+        //   patch：修 bug / 适配新版目标 App
+        // versionCode 由上面的三段自动换算，不用手改：
+        //   major * 10000 + minor * 100 + patch
+        //   例：1.0.0 → 10000，1.1.0 → 10100，1.1.3 → 10103
+        val versionMajor = 1
+        val versionMinor = 1
+        val versionPatch = 0
+        versionName = "$versionMajor.$versionMinor.$versionPatch"
+        versionCode = versionMajor * 10000 + versionMinor * 100 + versionPatch
 
         ndk {
             abiFilters += "arm64-v8a"

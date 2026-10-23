@@ -58,6 +58,7 @@ fun SettingsScreen() {
     // 走 FeatureState：导航宿主直接订阅它，关掉动画当场生效
     val predictiveBack = FeatureState.predictiveBack
     var hotReload by remember { mutableStateOf(SettingsStore.hotReload) }
+    var toastOnStart by remember { mutableStateOf(SettingsStore.toastOnStart) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -157,6 +158,16 @@ fun SettingsScreen() {
                     onCheckedChange = {
                         hotReload = it
                         SettingsStore.hotReload = it
+                    },
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                )
+                SwitchPreference(
+                    title = "启动时提示 Hook 状态",
+                    summary = "目标应用启动时用 Toast 显示本次装载结果（成功几个 / 失败几个）",
+                    checked = toastOnStart,
+                    onCheckedChange = {
+                        toastOnStart = it
+                        SettingsStore.toastOnStart = it
                     },
                     insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 )

@@ -9,6 +9,8 @@ coreKtx = "1.19.1"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
 navigationevent = "1.1.2"
+# DexKit：运行时扫 dex 按特征定位混淆类（含 arm64 原生库 libdexkit.so）
+dexkit = "2.3.0"
 
 [libraries]
 # ---------- Miuix (Compose Multiplatform UI) ----------
@@ -21,6 +23,9 @@ miuix-nav = { module = "top.yukonga.miuix.kmp:miuix-nav-android", version.ref = 
 libxposed-api = { module = "io.github.libxposed:api", version.ref = "libxposed" }
 # 模块 App 侧与框架通信（激活状态 / RemotePreferences / 已生效进程）
 libxposed-service = { module = "io.github.libxposed:service", version.ref = "libxposed" }
+
+# ---------- DexKit（Hook 侧运行时扫 dex，定位混淆类） ----------
+dexkit = { module = "org.luckypray:dexkit", version.ref = "dexkit" }
 
 # ---------- AndroidX ----------
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }

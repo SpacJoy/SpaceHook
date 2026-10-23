@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-20（新增高德默认出行方式 `amap_default_route`，真机验证通过）
+> 最后更新：2026-10-24（v1.1.0：DexKit 兜底 + 装载结果统计 + 启动 Toast + 版本号方案落地）
 
 ---
 
@@ -348,6 +348,65 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-24（新增：DexKit 兜底 + Hook 装载结果统计 + 启动 Toast 提示）→ **v1.1.0 (10100)**
+
+**动机**：网易云失效事件暴露出两个问题 —— ① 混淆名变化后没有兜底；② 失效完全静默，用户看不出。
+
+**配套：版本号方案落地**（用户 2026-10-24 选定方案 A 语义化 SemVer）：
+`app/build.gradle.kts` 改为 `major/minor/patch` 三个变量 + 自动换算 `versionCode`，
+本次版本 `1.1.0 / 10100`（此前一直停在 `1.0.0 / 1`）。约定：**每次交付 APK 前必 bump**。
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `gradle/libs.versions.toml` / `libhook/build.gradle.kts` | 引入 `org.luckypray:dexkit:2.3.0`（含 arm64 `libdexkit.so` 约 395 KB） |
+| `libhook/.../utils/DexAnchorScanner.kt` | **新增** DexKit 扫描器：按方法签名定位混淆类 + 缓存指纹（规则版本/APK 路径/大小/mtime）+ 原生库懒加载 + 缓存命中仍反射复核 |
+| `libhook/.../base/BaseHook.kt` | 新增装载结果统计：`LoadResult`（OK/FAILED/SKIPPED）+ `installedHooks`/`failedAnchors`；`requireClass`/`replace`/`before`/`hookAllMethods`/`hookConstructor`/`hookExecutable` 自动计数 |
+| `libhook/.../base/HookContext.kt` | 增加 `apkPath`（来自 `PackageReadyParam.applicationInfo.sourceDir`） |
+| `libhook/.../utils/HookToast.kt` | **新增** 启动提示：等到目标 App 有 Activity 再弹（轮询，最长 15s），显示成功/失败/跳过与失败功能名 |
+| `libhook/.../SpaceHookEntry.kt` | 分发时按 `LoadResult` 分别统计，汇总日志改为「成功/跳过/失败/已开启/共」，并调用 `HookToast` |
+| `libhook/.../rules/cloudmusic/...Hook.kt` | 定位改为三层：已知名单 → manifest 锚点+继承链 → **DexKit 兜底** |
+| `common/.../HookPrefs.kt` + `app/.../SettingsScreen.kt` + `SettingsStore.kt` | 新增开关 `exp_toast_on_start`（设置页 → 实验性功能，默认关闭） |
+| `docs/混淆名Hook方案.md` | 补充 DexKit 落地方式、启动提示章节、版本号方案候选 |
+
+**关键设计**：DexKit 只做**第三层兜底**。前两层纯反射（≈0 耗时），只有全落空才加载原生库扫描 ——
+绝大多数版本的启动完全不碰 `libdexkit.so`。这与参考项目「DexKit 当主力」不同，
+因为本项目多数 Hook 目标是系统 App（不混淆）。
+
+**验证**：`BUILD SUCCESSFUL`；APK 13 MB，内含 `lib/arm64-v8a/libdexkit.so`。真机未测。
+
+---
+
+### 2026-10-24（修复：网易云 9.6.13 失效 → 通用混淆名锚点方案）
+
+**现象**：用户升级网易云到 9.6.13 后，`cloudmusic_no_smartplay_loading` 完全不生效，
+但无闪退、日志里也只有一条 `方法不存在，跳过` 的 WARNING。
+
+**根因**：`activity.ha` 是 R8 混淆名，9.6.13 里真正的播放页基类变成了 `activity.ma`；
+而 `activity.ha` 这个**名字还在**，被一个无关的 lambda 类占用。
+`BaseHook.replace()` 找不到方法只打 WARN、Hook 仍记为「装载成功」→ 静默失效。
+（弹窗逻辑本身一字未改，连红心 WebP 的 URL 都一样。）
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `libhook/.../base/AnchorFinder.kt` | **新增**通用锚点工具：`findAncestor`（沿父类链找）/ `declaresMethod`（只认自己声明的）/ `findDeclaredMethod` |
+| `libhook/.../rules/cloudmusic/CloudMusicNoSmartPlayLoadingHook.kt` | 重写定位为三层：已知名单（`ma`/`ha`，逐个验证声明）→ manifest 锚点 `PlayerActivity` → 继承链解析。定位失败改报 **ERROR** |
+| `common/.../HookCatalog.kt` | 修正该 Hook 过时的 `hookPoints`（原来还写着已回滚的 903 消息方案） |
+| `docs/混淆名Hook方案.md` | **新增**：混淆名通用方案 + 新增 Hook 强制检查清单 + DexKit 引入时机 |
+| `docs/HOOKS.md` §11 | 补充 9.6.08 → 9.6.13 的失效分析与新定位说明 |
+
+**为什么不引入 DexKit**：参考项目（HyperCeiler / AmapRouteDefault）用它做主力，
+但代价是原生库（arm64 so 约 395 KB）+ 首次扫描 100–150 ms + 每个 Hook 改写成查询 DSL。
+目前全项目只有网易云 1 个 Hook 真被混淆名坑过，投入产出比不划算 ——
+判断标准与引入时机记在 `docs/混淆名Hook方案.md` 第五节（**等第 3 个 Hook 失效再上**）。
+
+**验证**：`BUILD SUCCESSFUL`（`:app:assembleDebug`）。真机未测（按用户要求不自动测试）。
+
+---
 
 ### 2026-10-20（新增：高德地图默认出行方式）
 

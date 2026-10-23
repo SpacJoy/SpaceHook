@@ -55,6 +55,7 @@ Xposed.spacejoy.top/
 │   ├── ARCHITECTURE.md          架构与设计决策
 │   ├── PROGRESS.md              开发进度（每次改动请更新！）
 │   ├── HOOKS.md                 Hook 功能清单 + hook 点定位表
+│   ├── 混淆名Hook方案.md         ★ 第三方 App 混淆名失效的通用解法（新增 Hook 必读）
 │   ├── 新手代码地图.md           ★ 给项目所有者看的非技术向代码地图（排障路径 / 改动速查表）
 │   └── ANALYSIS-SoundMan.md     SoundMan 移植分析报告
 ├── common/                      纯数据层（UI 与 Hook 进程共用，禁止依赖 libxposed / Compose）
@@ -252,6 +253,10 @@ class MyNewHook : BaseHook("my_new_hook") {
 ### Step 6 — 更新文档
 
 在 `docs/HOOKS.md` 补一行；在 `docs/PROGRESS.md` 记录本次改动。
+
+> ⚠️ **第三方 App 的 Hook 必做**：R8 混淆名每次发版都可能整批变化，写死类名会「静默失效」。
+> 先读 [`docs/混淆名Hook方案.md`](docs/混淆名Hook方案.md)，用 `libhook/.../base/AnchorFinder.kt`
+> 的锚点定位（manifest 锚点 → 继承链 → 已知名单），定位失败必须报 ERROR，不能安静 return。
 
 ---
 

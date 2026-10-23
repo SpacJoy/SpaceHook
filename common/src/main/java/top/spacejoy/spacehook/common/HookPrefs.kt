@@ -36,6 +36,12 @@ object HookPrefs {
     /** 热重载：模块更新后自动重载已注入的进程（API 102 特性） */
     const val HOT_RELOAD = "exp_hot_reload"
 
+    /**
+     * 启动提示：目标 App 启动时用 Toast 显示本次 Hook 装载结果
+     * （成功几个 / 失败几个）。默认关闭。
+     */
+    const val TOAST_ON_START = "exp_toast_on_start"
+
     // ==================== 界面设置 ====================
 
     /** 主题模式：0=跟随系统 1=浅色 2=深色 3=Monet 跟随系统 4=Monet 浅色 5=Monet 深色 */

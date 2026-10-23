@@ -24,6 +24,14 @@ class HookContext(
 
     /** 是否运行在 system_server 中 */
     val isSystemServer: Boolean,
+
+    /**
+     * 目标 App 的 APK 路径（base.apk），DexKit 扫描需要。
+     *
+     * 来自 `PackageReadyParam#getApplicationInfo().sourceDir`；
+     * system_server 没有这东西，因此为 null。
+     */
+    val apkPath: String? = null,
 ) {
     /** 当前进程是否就是该 App 的主进程 */
     val isMainProcess: Boolean = processName == packageName

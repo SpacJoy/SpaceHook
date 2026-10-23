@@ -224,8 +224,8 @@ object HookCatalog {
             defaultEnabled = true,
             requiresReboot = true,
             hookPoints = listOf(
-                "com.netease.cloudmusic.service.MainProcessPlayService#sendMessageToClient(int,int,int,Serializable)（拦截 903 = SMARTPLAY_LOADING）",
-                "qp0.z0#E2(boolean)（心动模式触发点，仅诊断日志）",
+                "com.netease.cloudmusic.activity.PlayerActivity（manifest 锚点，R8 不可改名）" +
+                    " → 父类链上声明 showDialog(boolean,String) 的祖先（9.6.13 = activity.ma，9.6.08 = activity.ha）",
             ),
         ),
         HookMeta(

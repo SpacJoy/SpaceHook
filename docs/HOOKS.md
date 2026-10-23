@@ -21,7 +21,7 @@
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
 | `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
 | `status_bar_speed` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 同显示位独立网速开关，真机已验证（与仪表合并显示） |
-| `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 | 20 个 dex / 约 18 万类 | ✅ 抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`；真机已验证弹窗消失 |
+| `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 / 9.6.13 | 20 个 dex / 约 18 万类 | ✅ 抓 `Dialog#show` 调用栈首定位；9.6.13 混淆名变化后改为「manifest 锚点 + 继承链」自动解析（见 §11） |
 | `alarm_swap_snooze_dismiss` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：上滑 → 延迟提醒，按钮 → 关闭闹钟，文案同步 |
 | `alarm_swipe_dismiss_distance` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：10% 上滑回弹、64% 上滑放行（阈值 60% 可调） |
 
@@ -741,11 +741,30 @@ animHandler.postDelayed(..., 5000L);                           // 最长 5 秒�
 `if (aiModeLoadingDialog == null || !isShowing()) return;`，
 所以「从未创建过弹窗」不会 NPE，也不会留下悬空定时器。
 
-### 版本风险与重定位
+### 版本变化：9.6.08 → 9.6.13 已失效一次，现已改为锚点定位 ✅（2026-10-24）
 
-`com.netease.cloudmusic.activity.ha` 与 `showDialog` 都是 **R8 混淆名**，大版本更新后可能失效。
-重定位步骤：临时 hook `android.app.Dialog#show()` 打印类名 + 调用栈 → 找到新的
-`showDialog` 所在类与方法名 → 改实现里的两个常量（`CLS_PLAYER_ACTIVITY` / `METHOD_SHOW_DIALOG`）。
+**失效原因**：`activity.ha` 与 `showDialog` 都是 **R8 混淆名**。9.6.13 重新出包后：
+
+| | 9.6.08 | 9.6.13 |
+|---|---|---|
+| 播放页基类 | `activity.ha`（父类 `activity.m`） | `activity.ma`（父类同为 `activity.m`，`showDialog(Z,String)V` 签名一字未变） |
+| `activity.ha` 这个名字 | 就是播放页 | **被一个无关 lambda 类占用**（`<init>(activity.ma,int)` + `invoke()`） |
+
+所以旧代码 `requireClass("activity.ha")` 依然能拿到类，但类里没有 `showDialog` →
+`replace()` 返回 null、只打一条 `logw`、Hook 仍记为「装载成功」→ **静默失效**。
+弹窗逻辑本身一个字都没改（连红心 WebP 的 URL 都一样）。
+
+**现在的定位**（三层，通用工具见 `libhook/.../base/AnchorFinder.kt`）：
+
+1. **已知名单** `KNOWN_HOSTS`：`activity.ma`(9.6.13) / `activity.ha`(9.6.08)，逐个验证是否**声明**了 `showDialog`
+2. **manifest 锚点** `activity.PlayerActivity` —— 在 manifest 里注册过，R8 不能改名
+3. **继承链**：从 PlayerActivity 沿父类向上，找第一个**自己声明**了 `showDialog(boolean,String)` 的类
+   （两版实测都在 3 层之内；必须用 `getDeclaredMethod`，用 `getMethod` 会误命中每一层祖先）
+
+全 APK 里声明 `showDialog(Z,String)V` 的只有 2 个类（另一个是与 Activity 无关的普通类），
+靠继承链天然只会命中正确的那个。定位失败会打 **ERROR** 日志，不再静默。
+
+> 通用方案与「新增 Hook 强制检查清单」见 [混淆名Hook方案.md](混淆名Hook方案.md)。
 
 ### 反 hook 检测（本次未触发）
 

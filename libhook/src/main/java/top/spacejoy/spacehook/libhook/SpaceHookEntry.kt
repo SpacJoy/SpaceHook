@@ -9,6 +9,7 @@ import top.spacejoy.spacehook.common.HookCatalog
 import top.spacejoy.spacehook.libhook.base.BaseHook
 import top.spacejoy.spacehook.libhook.base.HookContext
 import top.spacejoy.spacehook.libhook.base.HookRegistry
+import top.spacejoy.spacehook.libhook.utils.HookToast
 import top.spacejoy.spacehook.libhook.utils.PrefsBridge
 import top.spacejoy.spacehook.libhook.utils.XLog
 
@@ -56,6 +57,7 @@ class SpaceHookEntry : XposedModule() {
             packageName = Constants.TARGET_SYSTEM,
             classLoader = param.classLoader,
             isSystemServer = true,
+            apkPath = null,
         )
     }
 
@@ -71,12 +73,19 @@ class SpaceHookEntry : XposedModule() {
             packageName = param.packageName,
             classLoader = param.classLoader,
             isSystemServer = false,
+            // DexKit 扫描需要 base.apk 路径；拿不到时退回 null（不扫描，只走反射锚点）
+            apkPath = runCatching { param.applicationInfo.sourceDir }.getOrNull(),
         )
     }
 
     // ==================== 核心分发 ====================
 
-    private fun dispatch(packageName: String, classLoader: ClassLoader, isSystemServer: Boolean) {
+    private fun dispatch(
+        packageName: String,
+        classLoader: ClassLoader,
+        isSystemServer: Boolean,
+        apkPath: String? = null,
+    ) {
         synchronized(loadedPackages) {
             if (!loadedPackages.add(packageName)) {
                 XLog.d("$packageName 已分发过，跳过")
@@ -107,39 +116,78 @@ class SpaceHookEntry : XposedModule() {
             classLoader = classLoader,
             module = this,
             isSystemServer = isSystemServer,
+            apkPath = apkPath,
         )
         XLog.i("[$packageName] 匹配到 ${metas.size} 个 Hook：${metas.joinToString { it.id }}")
 
+        var enabledCount = 0
         var okCount = 0
+        var skippedCount = 0
+        val failedNames = ArrayList<String>()
+
         metas.forEach { meta ->
             if (!PrefsBridge.isHookEnabled(meta.id, packageName, meta.defaultEnabled)) {
                 XLog.i("[$packageName] ${meta.id} 已关闭，跳过")
                 return@forEach
             }
+            enabledCount++
 
             val hook = HookRegistry.create(meta.id)
             if (hook == null) {
                 XLog.e("[$packageName] ${meta.id} 未在 HookRegistry 中注册，跳过")
+                failedNames += meta.name
                 return@forEach
             }
 
-            if (loadHook(hook, ctx, meta.id)) okCount++
+            when (loadHook(hook, ctx, meta.id)) {
+                BaseHook.LoadResult.OK -> okCount++
+                BaseHook.LoadResult.SKIPPED -> skippedCount++
+                BaseHook.LoadResult.FAILED -> failedNames += meta.name
+            }
         }
 
-        XLog.i("[$packageName] 分发完成：成功 $okCount / 共 ${metas.size}")
+        XLog.i(
+            "[$packageName] 分发完成：成功 $okCount / 跳过 $skippedCount / 失败 ${failedNames.size}" +
+                " / 已开启 $enabledCount（共 ${metas.size}）"
+        )
+
+        // 启动提示：只对普通 App 弹（system_server 没有界面）
+        if (!isSystemServer) {
+            HookToast.showResult(
+                total = enabledCount,
+                ok = okCount,
+                failed = failedNames.size,
+                skipped = skippedCount,
+                detail = failedNames,
+            )
+        }
     }
 
-    private fun loadHook(hook: BaseHook, ctx: HookContext, hookId: String): Boolean {
+    private fun loadHook(hook: BaseHook, ctx: HookContext, hookId: String): BaseHook.LoadResult {
         return try {
             hook.attach(ctx)
             hook.onHook()
-            // 回写「已生效」状态，供 UI 展示
-            PrefsBridge.markActive(hookId, ctx.processName)
-            XLog.i("[$hookId] Hook 装载成功 @ ${ctx.packageName}")
-            true
+            val result = hook.loadResult
+            when (result) {
+                BaseHook.LoadResult.OK -> {
+                    // 回写「已生效」状态，供 UI 展示
+                    PrefsBridge.markActive(hookId, ctx.processName)
+                    XLog.i("[$hookId] Hook 装载成功 @ ${ctx.packageName}（拦截 ${hook.installedHooks} 个）")
+                }
+                BaseHook.LoadResult.FAILED -> {
+                    XLog.e(
+                        "[$hookId] Hook 失效 @ ${ctx.packageName}：" +
+                            "拦截 ${hook.installedHooks} 个、失败 ${hook.failedAnchors} 个 —— 需要适配新版"
+                    )
+                }
+                BaseHook.LoadResult.SKIPPED -> {
+                    XLog.i("[$hookId] 已跳过（本进程不适用）@ ${ctx.packageName}")
+                }
+            }
+            result
         } catch (t: Throwable) {
-            XLog.e("[$hookId] Hook 装载失败 @ ${ctx.packageName}", t)
-            false
+            XLog.e("[$hookId] Hook 装载异常 @ ${ctx.packageName}", t)
+            BaseHook.LoadResult.FAILED
         }
     }
 }

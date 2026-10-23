@@ -35,4 +35,8 @@ dependencies {
     compileOnly(libs.libxposed.api)
 
     implementation(libs.androidx.core.ktx)
+
+    // DexKit：目标 App 启动时扫 dex，按方法签名 / 字符串特征定位混淆类。
+    // 自带 arm64-v8a 原生库（libdexkit.so 约 395 KB），由 :app 的 abiFilters 裁剪。
+    implementation(libs.dexkit)
 }

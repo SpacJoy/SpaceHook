@@ -82,6 +82,11 @@ object SettingsStore {
         get() = getBoolean(HookPrefs.HOT_RELOAD, true)
         set(v) = putBoolean(HookPrefs.HOT_RELOAD, v)
 
+    /** 目标 App 启动时用 Toast 提示 Hook 装载结果 */
+    var toastOnStart: Boolean
+        get() = getBoolean(HookPrefs.TOAST_ON_START, false)
+        set(v) = putBoolean(HookPrefs.TOAST_ON_START, v)
+
     // ==================== 界面设置 ====================
 
     var themeMode: Int
