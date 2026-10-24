@@ -1,0 +1,11 @@
+# 作者身份映射（.mailmap）
+#
+# 作用：把历史上误用的占位身份统一显示成真实身份。
+# 2026-10-25 已用 git filter-branch 把全库 51 个提交的 author/committer 真正改掉，
+# 这里的映射是**双保险**：万一以后又出现 git 自动兜底生成的假身份
+# （形如 <用户名@主机名.(none)> 或 spacejoy@local），显示层也会被纠正回来。
+#
+# 格式：正确名字 <正确邮箱>  原始名字 <原始邮箱>
+# 文档：https://git-scm.com/docs/gitmailmap
+
+(=^.^=)喵～ <89252350+SpacJoy@users.noreply.github.com> SpaceJoy <spacejoy@local>
