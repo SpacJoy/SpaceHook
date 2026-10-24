@@ -31,6 +31,8 @@ import java.io.File
  * ## 开关
  *
  * 由设置页「启动时提示 Hook 状态」（[HookPrefs.TOAST_ON_START]）控制，默认关闭。
+ * 总开关打开后，还可以在设置页的**应用列表**里逐个别关掉不需要提示的 App
+ * （[HookPrefs.toastAppKey]，只看用户应用）。
  */
 object HookToast {
 
@@ -45,6 +47,7 @@ object HookToast {
     /**
      * 弹出装载结果。
      *
+     * @param packageName 目标 App 包名（决定该 App 是否被单独关掉了提示）
      * @param total 本次参与分发的 Hook 总数（含被开关关掉的）
      * @param ok 装载成功
      * @param failed 关键锚点解析失败（需要适配新版）
@@ -52,13 +55,14 @@ object HookToast {
      * @param detail 失败详情，用于第二行提示
      */
     fun showResult(
+        packageName: String,
         total: Int,
         ok: Int,
         failed: Int,
         skipped: Int,
         detail: List<String> = emptyList(),
     ) {
-        if (!PrefsBridge.getBoolean(HookPrefs.TOAST_ON_START, false)) return
+        if (!PrefsBridge.isToastEnabled(packageName)) return
         // 全被开关关掉时不弹：没有任何信息量，反而像出错了
         if (total <= 0) return
 

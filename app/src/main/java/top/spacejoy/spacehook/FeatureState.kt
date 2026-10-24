@@ -16,13 +16,33 @@ object FeatureState {
     var predictiveBack by mutableStateOf(SettingsStore.predictiveBack)
         private set
 
+    /**
+     * 「启动提示」被单独关掉提示的用户应用数量。
+     *
+     * 设置页用它写副标题；子页面每改一个开关就刷新一次，
+     * 否则返回设置页时看到的还是旧数字（[SettingsStore] 不是 Compose 状态）。
+     */
+    var toastAppsClosedCount by mutableStateOf(countToastAppsClosed())
+        private set
+
     /** 从持久化存储重新加载 */
     fun reload() {
         predictiveBack = SettingsStore.predictiveBack
+        toastAppsClosedCount = countToastAppsClosed()
     }
 
     fun updatePredictiveBack(value: Boolean) {
         predictiveBack = value
         SettingsStore.predictiveBack = value
     }
+
+    /** 重新统计并刷新「被关掉提示」的应用数量 */
+    fun refreshToastAppsClosedCount() {
+        toastAppsClosedCount = countToastAppsClosed()
+    }
+
+    private fun countToastAppsClosed(): Int =
+        top.spacejoy.spacehook.common.HookCatalog.userApps.count {
+            !SettingsStore.isToastAppEnabled(it.packageName)
+        }
 }

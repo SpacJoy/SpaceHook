@@ -154,6 +154,7 @@ class SpaceHookEntry : XposedModule() {
         // 启动提示：只对普通 App 弹（system_server 没有界面）
         if (!isSystemServer) {
             HookToast.showResult(
+                packageName = packageName,
                 total = enabledCount,
                 ok = okCount,
                 failed = failedNames.size,

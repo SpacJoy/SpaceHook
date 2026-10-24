@@ -74,6 +74,13 @@ object HookPrefs {
     fun hookKey(hookId: String): String = "hook::$hookId"
 
     /**
+     * 「启动提示」在某个目标 App 上是否弹出（默认跟随总开关，即 true）。
+     *
+     * 只对用户应用可单独设置；系统应用不走这个键。
+     */
+    fun toastAppKey(packageName: String): String = "exp_toast_app::$packageName"
+
+    /**
      * 某个 Hook 自己的功能参数。
      * 例如 `configKey("device_center_size", "mode")` → 强制单行/双行。
      */

@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-24（v1.1.0：DexKit 兜底 + 装载结果统计 + 启动 Toast + 版本号方案落地）
+> 最后更新：2026-10-24（v1.2.0：启动提示支持按用户应用单独开关）
 
 ---
 
@@ -348,6 +348,30 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-24（启动提示支持按应用单独开关）→ **v1.2.0 (10200)**
+
+**需求**：启动提示（Hook 状态 Toast）原先只有一个总开关，开了就所有目标 App 全弹。
+需要能逐个指定「哪些 App 弹」，且**只列用户应用**（系统应用本来就不弹）。
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `common/.../HookPrefs.kt` | 新增动态键 `toastAppKey(packageName)` = `exp_toast_app::<包名>` |
+| `libhook/.../utils/PrefsBridge.kt` | 新增 `isToastEnabled(packageName)`：总开关 `exp_toast_on_start` 关闭时一律 false；打开时再看该 App 的键（默认 true） |
+| `libhook/.../utils/HookToast.kt` | `showResult()` 增加参数 `packageName`，闸门改走 `PrefsBridge.isToastEnabled()` |
+| `libhook/.../SpaceHookEntry.kt` | 调用处传入当前 `packageName` |
+| `app/.../SettingsStore.kt` | 新增 `isToastAppEnabled` / `setToastAppEnabled` |
+| `app/.../FeatureState.kt` | 新增 `toastAppsClosedCount` + `refreshToastAppsClosedCount()`（设置页副标题用，改完返回即时刷新） |
+| `app/.../ui/screens/ToastAppsScreen.kt` | **新增** 整屏子页面：列出全部**用户应用**，每行一个开关（已安装置顶，未安装标「未安装」） |
+| `app/.../ui/screens/SettingsScreen.kt` | 总开关下方加「提示哪些应用」入口（`ArrowPreference`），副标题显示「提示 N 个 / 共 M 个用户应用」 |
+| `app/.../ui/SpaceHookNavHost.kt` / `MainScreen.kt` | 新增路由 `Route.ToastApps` + `onOpenToastApps` 回调链 |
+| `app/build.gradle.kts` | 版本 `1.1.0` → `1.2.0`（10200） |
+
+**语义**：总开关是上位闸门 —— 关掉就全都不弹，子页面怎么选都没用；
+打开后默认全部用户应用都弹，只有被单独关掉的那些才安静。列表取自
+`HookCatalog.userApps`（已配置 Hook 的用户应用），不列设备上全部已安装应用。
 
 ### 2026-10-24（新增：DexKit 兜底 + Hook 装载结果统计 + 启动 Toast 提示）→ **v1.1.0 (10100)**
 

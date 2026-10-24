@@ -46,7 +46,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 保证点击后立即刷新 UI（而不是等切换页面才读到新值）。
  */
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onOpenToastApps: () -> Unit = {},
+) {
     var showThemeDialog by remember { mutableStateOf(false) }
     var showColorDialog by remember { mutableStateOf(false) }
     var showFontDialog by remember { mutableStateOf(false) }
@@ -163,12 +165,35 @@ fun SettingsScreen() {
                 )
                 SwitchPreference(
                     title = "启动时提示 Hook 状态",
-                    summary = "目标应用启动时用 Toast 显示本次装载结果（成功几个 / 失败几个）",
+                    summary = buildString {
+                        append("目标应用启动时用 Toast 显示本次装载结果（成功几个 / 失败几个）")
+                        // 用 FeatureState 里的计数：子页面改完开关返回时会自动刷新
+                        val closed = FeatureState.toastAppsClosedCount
+                        if (toastOnStart && closed > 0) append("；$closed 个用户应用已单独关闭")
+                    },
                     checked = toastOnStart,
                     onCheckedChange = {
                         toastOnStart = it
                         SettingsStore.toastOnStart = it
                     },
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                )
+                // 细分到「哪个 App 弹」——只列用户应用，默认全弹
+                ArrowPreference(
+                    title = "提示哪些应用",
+                    summary = if (toastOnStart) {
+                        val total = HookCatalog.userApps.size
+                        val closed = FeatureState.toastAppsClosedCount
+                        when {
+                            total == 0 -> "暂无可配置的用户应用"
+                            closed >= total -> "全部用户应用已关闭提示"
+                            closed == 0 -> "$total 个用户应用全部提示"
+                            else -> "提示 ${total - closed} 个 / 共 $total 个用户应用"
+                        }
+                    } else {
+                        "总开关已关闭，全部不弹"
+                    },
+                    onClick = onOpenToastApps,
                     insideMargin = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 )
             }

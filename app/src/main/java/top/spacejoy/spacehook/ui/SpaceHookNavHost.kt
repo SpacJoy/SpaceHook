@@ -20,6 +20,7 @@ import top.spacejoy.spacehook.ui.screens.BatchRestartDialog
 import top.spacejoy.spacehook.ui.screens.CardOrderScreen
 import top.spacejoy.spacehook.ui.screens.HookParamsScreen
 import top.spacejoy.spacehook.ui.screens.TilePickerScreen
+import top.spacejoy.spacehook.ui.screens.ToastAppsScreen
 import top.spacejoy.spacehook.ui.screens.UserAppsScreen
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -53,6 +54,9 @@ sealed interface Route : NavKey {
 
     /** 三级：某个功能的配置页（磁贴选择 / 磁贴卡片排序等） */
     data class HookConfig(val hookId: String) : Route
+
+    /** 三级：启动提示的白名单（逐个用户应用开关） */
+    data object ToastApps : Route
 }
 
 /**
@@ -91,6 +95,7 @@ fun SpaceHookNavHost() {
             MainScreen(
                 onOpenUserApps = { nav.push(Route.UserApps) },
                 onOpenConfig = { nav.push(Route.HookConfig(it.id)) },
+                onOpenToastApps = { nav.push(Route.ToastApps) },
             )
         }
 
@@ -116,6 +121,16 @@ fun SpaceHookNavHost() {
                 },
             ) {
                 UserAppsScreen(onOpenConfig = { nav.push(Route.HookConfig(it.id)) })
+            }
+        }
+
+        entry<Route.ToastApps>(swipeDismiss = NavSwipeDirection.TopToBottom) {
+            SubPageScaffold(
+                title = "启动提示的应用",
+                subtitle = "只对用户应用生效；关掉后该应用启动时不再弹提示",
+                onBack = { nav.pop() },
+            ) {
+                ToastAppsScreen()
             }
         }
 

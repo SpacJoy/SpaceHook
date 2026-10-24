@@ -55,6 +55,7 @@ private val PAGES = listOf(
 fun MainScreen(
     onOpenUserApps: () -> Unit = {},
     onOpenConfig: (HookMeta) -> Unit = {},
+    onOpenToastApps: () -> Unit = {},
 ) {
     var current by rememberSaveable { mutableStateOf(0) }
     // 「批量重启」确认框由**按钮自己所在的位置**持有：这样切页签回来不会被重新触发
@@ -108,7 +109,7 @@ fun MainScreen(
                     onOpenUserApps = onOpenUserApps,
                     onOpenConfig = onOpenConfig,
                 )
-                else -> SettingsScreen()
+                else -> SettingsScreen(onOpenToastApps = onOpenToastApps)
             }
 
             // 批量重启确认框（一级页面 = 系统应用列表）；OverlayDialog 的宿主是上面这个 Scaffold

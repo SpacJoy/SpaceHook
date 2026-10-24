@@ -87,6 +87,18 @@ object SettingsStore {
         get() = getBoolean(HookPrefs.TOAST_ON_START, false)
         set(v) = putBoolean(HookPrefs.TOAST_ON_START, v)
 
+    /**
+     * 某个用户应用是否要弹「启动提示」。
+     *
+     * 默认 true：跟着 [toastOnStart] 的总开关走；关掉某个 App 后它就安静。
+     * 只有用户应用支持单独设置（系统应用不参与这个列表）。
+     */
+    fun isToastAppEnabled(packageName: String): Boolean =
+        getBoolean(HookPrefs.toastAppKey(packageName), true)
+
+    fun setToastAppEnabled(packageName: String, enabled: Boolean) =
+        putBoolean(HookPrefs.toastAppKey(packageName), enabled)
+
     // ==================== 界面设置 ====================
 
     var themeMode: Int

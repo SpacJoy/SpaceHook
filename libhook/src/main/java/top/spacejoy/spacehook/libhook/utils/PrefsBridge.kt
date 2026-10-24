@@ -91,6 +91,18 @@ object PrefsBridge {
         getBoolean(HookPrefs.appMasterKey(packageName), true)
 
     /**
+     * 该目标 App 是否要弹「启动提示」。
+     *
+     * 先用总开关 `exp_toast_on_start` 拦一道；总开关打开时，
+     * 再看该 App 的单独设置 `exp_toast_app::<包名>`（默认 true，即跟着总开关）。
+     * 这样既能一键全开，也能只留某几个 App 不弹。
+     */
+    fun isToastEnabled(packageName: String): Boolean {
+        if (!getBoolean(HookPrefs.TOAST_ON_START, false)) return false
+        return getBoolean(HookPrefs.toastAppKey(packageName), true)
+    }
+
+    /**
      * 综合判断某个 Hook 是否应当加载：
      * 总开关 → 安全模式 → App 总开关 → 功能开关，全部通过才加载。
      */

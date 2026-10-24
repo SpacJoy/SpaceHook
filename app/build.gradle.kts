@@ -22,7 +22,7 @@ android {
         //   major * 10000 + minor * 100 + patch
         //   例：1.0.0 → 10000，1.1.0 → 10100，1.1.3 → 10103
         val versionMajor = 1
-        val versionMinor = 1
+        val versionMinor = 2
         val versionPatch = 0
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         versionCode = versionMajor * 10000 + versionMinor * 100 + versionPatch
