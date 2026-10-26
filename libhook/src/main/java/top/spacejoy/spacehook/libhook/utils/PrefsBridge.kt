@@ -62,6 +62,13 @@ object PrefsBridge {
      * `commit()` 同步返回结果，能确认是否真正落盘。
      *
      * 该调用只在 Hook 装载时发生一次，同步开销可接受。
+     *
+     * ⚠️ **写不进去是常态，不是故障。** LSPosed 下发给模块的 RemotePreferences
+     * 在某些版本/配置下是**只读实现**，`edit()` 直接抛
+     * `UnsupportedOperationException: Read only implementation`。
+     * 此时「已生效」状态只能退化为「本进程内可见」，UI 侧另有 `local_seen_processes`
+     * 本地兜底记录，功能与展示都不受影响。因此这里用 WARN 而不是 ERROR ——
+     * 原来每个 Hook 每次启动都刷一串 ERROR，会把真正的故障淹掉。
      */
     fun putBoolean(key: String, value: Boolean): Boolean {
         val p = prefs ?: return false
@@ -70,9 +77,30 @@ object PrefsBridge {
             if (!ok) XLog.w("配置写入未成功（commit=false）：$key")
             ok
         } catch (t: Throwable) {
-            XLog.e("配置写入异常：$key", t)
+            if (isReadOnly(t)) {
+                XLog.w("配置为只读实现，跳过写入（不影响功能）：$key —— ${XLog.brief(t)}")
+            } else {
+                XLog.e("配置写入异常：$key", t)
+            }
             false
         }
+    }
+
+    /**
+     * 判断这次写入失败是否只是「框架下发的是只读 Preferences」。
+     *
+     * 判据以**异常类型**为主：`SharedPreferences.Editor#commit()` 在正常实现里不会抛
+     * `UnsupportedOperationException`（那表示「这个操作根本没实现」），只有只读的代理实现才会。
+     * 消息文本仅作补充（不同 LSPosed 版本措辞可能不同，不能作为唯一依据）。
+     *
+     * 其他异常（IO、权限、序列化）一律按真异常报 ERROR，避免把故障当正常现象吞掉。
+     */
+    private fun isReadOnly(t: Throwable): Boolean {
+        if (t !is UnsupportedOperationException) return false
+        // 消息为空也判为只读（类型已经足够说明问题），不再因措辞不同而漏判成噪声
+        val msg = t.message?.lowercase() ?: return true
+        return "read only" in msg || "readonly" in msg || "read-only" in msg ||
+            "unsupported" in msg || "not supported" in msg
     }
 
     // ==================== 语义化判断 ====================
@@ -131,6 +159,9 @@ object PrefsBridge {
      *
      * 这是 UI 展示「已生效」的**持久化**来源 —— 不依赖该进程当前是否在运行，
      * 因此录音机这类按需启动的 App 关闭后依然能显示它上次生效过。
+     *
+     * 写入失败（只读 Preferences）是常态，不是故障，所以诊断日志用 DEBUG：
+     * 排查时调高日志级别就能看到，平时不刷屏。
      */
     fun markActive(hookId: String, processName: String) {
         val key = HookPrefs.hookActiveKey(hookId, processName)
@@ -138,9 +169,13 @@ object PrefsBridge {
             if (!markedActive.add(key)) return   // 本进程内已写过，跳过
         }
         val written = putBoolean(key, true)
-        val readBack = getBoolean(key, false)
-        // 用 ERROR 级别输出诊断 —— 这是排查「配置写入是否真的落盘」的关键证据
-        XLog.e("markActive 诊断: key=$key 写入=$written 回读=$readBack prefs=${prefs != null}")
+        // 只写成功时才回读校验；失败情形已在 putBoolean 里按只读/真异常分级别记录。
+        // 失败时仍保留占位、不重试：本方法在 Hook 装载时只调用一次，
+        // 只读 Preferences 重试多少次都是失败，没必要重复刷日志。
+        if (written) {
+            val readBack = getBoolean(key, false)
+            XLog.d("markActive：key=$key 写入成功 回读=$readBack")
+        }
     }
 
     fun syncLogConfig() {
