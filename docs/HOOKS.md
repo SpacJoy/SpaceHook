@@ -21,7 +21,7 @@
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
 | `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
 | `status_bar_speed` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 同显示位独立网速开关，真机已验证（与仪表合并显示） |
-| `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 / 9.6.13 | 20 个 dex / 约 18 万类 | ✅ 抓 `Dialog#show` 调用栈首定位；9.6.13 混淆名变化后改为「manifest 锚点 + 继承链」自动解析（见 §11） |
+| `cloudmusic_no_smartplay_loading` | 网易云音乐 9.6.08 / 9.6.13 | 20 个 dex / 约 18 万类 | ⚠️ 抓 `Dialog#show` 调用栈首定位；经历两次失效（9.6.13 类名漂移 → 已用锚点解决；9.6.13 出现两份实现 → 已改挂上游 `showAIModeLoadingDialog`），**待真机复测** |
 | `alarm_swap_snooze_dismiss` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：上滑 → 延迟提醒，按钮 → 关闭闹钟，文案同步 |
 | `alarm_swipe_dismiss_distance` | 时钟 18.28.0 | 3,909 类 | ✅ 真机验证：10% 上滑回弹、64% 上滑放行（阈值 60% 可调） |
 
@@ -683,9 +683,9 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 | 项 | 值 |
 |---|---|
 | 实现类 | `libhook/.../rules/cloudmusic/CloudMusicNoSmartPlayLoadingHook.kt` |
-| 目标 APK | `D:/Code/Android/APK/Hook/com.netease.cloudmusic_9.6.08.apk`（9.6.08，真机 `versionName=9.6.08 / versionCode=9006008`，与素材同版本） |
+| 目标 APK | `D:/Code/Android/APK/Hook/com.netease.cloudmusic9.6.13.apk`（9.6.13，`versionCode=9006013`） |
 | 目标进程 | `com.netease.cloudmusic`（实测只有这一个进程） |
-| 实测结论 | ✅ 真机验证：切歌 / 开心动模式不再弹窗，拦截日志连续命中 3 次，网易云无闪退 |
+| 实测结论 | ⚠️ 9.6.13 上已失效两次；当前方案改挂 `showAIModeLoadingDialog` 并覆盖两份实现，**离线 dex 已核对，待真机复测** |
 
 ### 功能语义
 
@@ -695,11 +695,46 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 本 Hook 只去掉这个弹窗，**心动模式本身照常工作**（推荐接口、切歌续播均不受影响）。
 
-### hook 点
+### hook 点（当前方案，2026-10-26 第四次适配）
 
 ```kotlin
-com.netease.cloudmusic.activity.ha#showDialog(boolean, String)
+# 主方案（最稳）：第三方库方法，类名跨版本稳定，不依赖任何混淆名
+com.afollestad.materialdialogs.g#show()V          # 按文案「正在打开心动模式」过滤
+
+# 精准方案（命中时更早拦住）：遍历所有声明该方法的类
+<播放页基类>#showAIModeLoadingDialog(boolean, String)   // 9.6.13 = activity.ma
+i1.c#showAIModeLoadingDialog(boolean, String)           // 9.6.13 第二份实现（com.cmbridge 桥接）
 ```
+
+> 旧的 `showDialog(boolean, String)` 方案已弃用，原因见下方「9.6.13 二次失效」。
+
+### 为什么最终加了 `MaterialDialog#show()` 兜底（第四次失效的教训）
+
+前三次都在「找网易云内部的入口方法」，结果是**挂载成功、日志零触发**。
+根因有两层：
+
+1. 同一功能被编译出多份实现（`ma` + `i1.c`），挂一份漏一份；
+2. 网易云带 **Tinker 热更新**，Hook 比补丁装载早 35ms 挂完，且
+   `DelegateLastClassLoader` 让补丁里的类覆盖 APK 里的同名类 ——
+   「挂上的 Method」和「实际执行的 Method」根本不是同一个对象。
+
+**换思路：不再猜网易云内部怎么走，直接挂「弹窗显示」这个必经动作。**
+
+`com.afollestad.materialdialogs.g#show()` 的优势：
+
+| 项 | 说明 |
+|---|---|
+| 类名稳定 | 第三方库（`com.afollestad`），包名由库作者决定，网易云的 R8 配置动不了 |
+| 必经之路 | 不管从 `ma`、`i1.c` 还是未来第三条路径创建，弹窗显示**必须**调 `show()` |
+| 文案可读 | 网易云在 `show()` **之前**就 `textView.setText(str)`，拦截时文本已在 View 树里 |
+
+**必须按文案过滤**：这个基类被网易云到处用（会员续费、私信、网络提示…），
+不加过滤会把所有 MaterialDialog 全干掉。判据是弹窗 View 树里的文本是否含
+「正在打开心动模式」。
+
+读文本走两条路径：优先 `Window#getContentView` + `android.R.id.content`
+（MaterialDialog 构造时就 setContentView，一定拿得到），
+为空再退 `getDecorView()`（弹窗未 attach 时 DecorView 可能还没有内容）。
 
 ### 定位过程（两次弯路 + 一个可复用的抓栈手法）
 
@@ -765,6 +800,71 @@ animHandler.postDelayed(..., 5000L);                           // 最长 5 秒�
 靠继承链天然只会命中正确的那个。定位失败会打 **ERROR** 日志，不再静默。
 
 > 通用方案与「新增 Hook 强制检查清单」见 [混淆名Hook方案.md](混淆名Hook方案.md)。
+
+### 9.6.13 二次失效：一份功能两份实现（2026-10-26）
+
+上一轮改成「锚点定位」后，9.6.13 上**又失效了**，但这次现象完全不同 ——
+日志说挂载成功、弹窗照旧：
+
+```
+D 已知名单命中：com.netease.cloudmusic.activity.ma
+I 已挂载：com.netease.cloudmusic.activity.ma#showDialog（拦截加载弹窗）
+I Hook 装载成功（拦截 1 个）
+```
+
+**类名和签名都没问题**（`ma` 仍在 `PlayerActivity → t8 → u4 → ma` 链上，
+`showDialog(Z,String)V` 一字未变）。真正的问题是：**全日志没有任何一条「已拦截」**，
+说明 `showDialog` 从未被调用。
+
+**根因：9.6.13 里同一功能存在两份实现。** 全 20 个 dex 扫描，声明
+`showAIModeLoadingDialog(Z,String)V` 的类有**两个**：
+
+| 类 | 说明 |
+|---|---|
+| `com.netease.cloudmusic.activity.ma` | 播放页基类（旧路径，hook 挂的是这里） |
+| `i1.c` | 新增的独立实现，经 `ServiceLoader.put(kj2.b.class, "com.cmbridge.CMMiniBarMessageServiceDefaultImpl", i1.c.class, false)` 注册；**9.6.08 无此注册** |
+
+两者结构几乎一致（黑底 `-872415232`、200dp 宽、红心 webp、`aiModeLoadingDialog` 字段），
+引用同一个字符串资源 `0x7f1325a7`（「正在打开心动模式...」）—— `ma` 用 `x01.f.U0`、
+`i1/c` 用 `z1.Ul`，**两者值相同**，各带一份 webp URL。
+
+所以只挂 `ma#showDialog` 时，桥接那条路径照旧弹窗，表现为「Hook 挂载成功但功能失效」。
+
+**为什么改挂上游 `showAIModeLoadingDialog` 更安全**（而不是继续加挂第二个 `showDialog`）：
+
+它是弹窗的唯一入口，内部只有三件事：
+
+```java
+if (this.isPrepareShow) return;      // ① 防重复
+this.isPrepareShow = true;           // ② 置标志
+if (mWebpDrawable != null) showDialog(z, str);   // ③ 弹窗
+else 下载红心 webp，回调里再 showDialog
+```
+
+在入口直接返回，三件全不发生：
+
+| 关注点 | 结果 |
+|---|---|
+| 弹窗 | 不创建、不 show |
+| `isPrepareShow` | **保持 false**。旧方案拦 `showDialog` 时它已被置 true，留下「已置 true 但永远不弹」的脏状态 |
+| 红心 webp | 连下载都不发起。旧方案里动画已 `start()` 却因 Dialog 未创建而没人 `stop()`（`stop()` 挂在 Dialog 的 onDismissListener 上），白耗电 |
+| `dismissAIModeLoadingDialog()` | 首句 `if (kVar == null || !kVar.isShowing()) return;` → 弹窗为 null，`onResume` / `onDestroy` / 802 收起分支全部安全空转，不 NPE |
+| 心动模式本身 | 不受影响：真正的模式切换走 `utils.jj` 的 RPC 播放链，不经过本方法（签名是 `void`） |
+
+⚠️ **绝对不要往上游再挂 `handleMessage` / `dispatchPlayCommand`**：这两个方法覆盖切歌、
+播放错误、音量、进度同步等 12+ 个分支，拦在那里会直接搞坏播放页。
+
+**当前定位**（返回全部命中，不要求唯一）：
+
+1. **已知名单**：只放播放页基类（`activity.ma` / `activity.ha`），逐个验证是否**声明**了目标方法。
+   桥接实现是纯混淆名、版本间会换名，不写死，靠第 3 层覆盖。
+2. **manifest 锚点 + 继承链**：`activity.PlayerActivity` 沿父类向上找第一个自己声明了目标方法的祖先。
+3. **DexKit 扫 dex**：`DexAnchorScanner.findDeclaringClasses()` 返回**所有**命中类并逐个补挂
+   （旧接口 `findDeclaringClass()` 只返回唯一命中，遇到「两份实现」会直接放弃）。
+   结果按 APK 指纹缓存，App 不变时第二次启动只读缓存、不碰原生库。
+
+> 本节的关键教训已回填到 [混淆名Hook方案.md](混淆名Hook方案.md)：
+> **「方法签名唯一」这个假设不成立**，同一功能可能被编译出多份实现。
 
 ### 反 hook 检测（本次未触发）
 

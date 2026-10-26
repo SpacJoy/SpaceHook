@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-24（v1.2.0：启动提示支持按用户应用单独开关）
+> 最后更新：2026-10-26（网易云 Hook 二次失效修复：改挂上游 `showAIModeLoadingDialog`，覆盖两份实现）
 
 ---
 
@@ -28,7 +28,7 @@
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
 | 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页与仪表共用同一个独立整屏页（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 19 | 参数页形态重构（仿 HyperCeiler） | ❌ 已回退 | `HookParam` 曾新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位），`HookParamsScreen` 重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证曾通过（`分发完成：成功 6 / 共 6`），但**用户要求回退**（2026-10-04，显示不正常）：4 个 UI 文件退回重构前的逐行形态，`HookParam` 的 4 个新成员一并移除；**hook 层未受影响** |
-| 20 | 网易云音乐 `cloudmusic_no_smartplay_loading` | ✅ 完成 | 去掉心动模式加载弹窗（黑底 + 红心动画 +「正在打开心动模式...」）。抓 `Dialog#show` 调用栈定位到 `activity.ha#showDialog`，replace 跳过即可；心动模式功能保留。真机验证弹窗消失、无闪退 |
+| 20 | 网易云音乐 `cloudmusic_no_smartplay_loading` | ⚠️ 修复待复测 | 去掉心动模式加载弹窗（黑底 + 红心动画 +「正在打开心动模式...」）。**9.6.13 上失效两次**：①类名漂移 `activity.ha`→`ma`（已用锚点解决）②同类功能被编译出**两份实现**（`activity.ma` + `i1.c` 桥接），只挂一份会漏。当前改挂上游唯一入口 `showAIModeLoadingDialog`，并遍历所有声明该方法的类逐个挂；离线 dex 已核对，待真机复测 |
 | 21 | 时钟闹钟操作 `alarm_swap_snooze_dismiss` / `alarm_swipe_dismiss_distance` | ✅ 完成 | 两个独立开关：①交换「上滑关闭」与「点击延迟提醒」（文案同步：按钮→「关闭闹钟」、底部→「滑动延迟提醒」）②加长上滑距离（阈值 30~90% 可调，默认 60%，并禁用快速一甩通道）。真机验证：按钮关闭、上滑延迟（排到 1 分钟后）、10% 回弹、64% 放行 |
 
 ---
@@ -348,6 +348,104 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-26 ✅ 网易云 `cloudmusic_no_smartplay_loading` 真机验证通过（第四次适配）
+
+**结果**：弹窗消失，日志 `已拦截 14 次`。真正生效的 hook 点是：
+
+```
+已挂载：com.netease.cloudmusic.activity.ma@Tinker补丁#showAIModeLoadingDialog
+```
+
+**完整成功链路（日志实证）**：
+
+```
+15:44:44  已挂载：materialdialogs.g#show（show 兜底）            ← 兜底挂上
+15:44:44  已挂载：ma@base.apk#showAIModeLoadingDialog             ← 这份无效
+15:44:44  已挂载：i1.c@base.apk#showAIModeLoadingDialog
+15:44:44  检测到 2 个 Tinker 补丁 dex，开始等待补丁装载…
+15:44:46  第 1 次轮询：当前加载器=DelegateLastClassLoader          ← 补丁装完
+15:44:46  已知名单命中 → ma@Tinker补丁                            ← 换加载器后是新 Class
+15:44:46  补挂：发现 1 个新承载类 [ma@Tinker补丁]
+15:44:46  已挂载：ma@Tinker补丁#showAIModeLoadingDialog             ← 真正生效
+15:44:49 起  已拦截心动模式加载弹窗（ma@Tinker补丁）× 14 次
+```
+
+**结论**：前三次失效的根因就是 **Tinker**（`base.apk` 那份类没被调用，
+实际执行的是补丁 dex 里那份）。`show()` 兜底一次都没触发，说明精准入口就够，
+兜底保留作为网易云改架构时的最后防线。
+
+**本轮附带优化**：
+
+| 项 | 改动 |
+|---|---|
+| 补丁路径去重 | `/data/user/0` 与 `/data/data` 是同一目录的两种写法，原来扫两遍；改按 `canonicalPath` 去重 |
+| 轮询提前结束 | 补挂成功后立即停止，不再空转 10 次 |
+| 复用补丁列表 | 补挂轮询复用已读到的 `patchDexes`，不再重复列目录 |
+| 日志降噪 | `已拦截` 首次打全文（含文案），之后只计数，避免一次切歌刷 14 行 |
+
+### 2026-10-26（`PrefsBridge` 只读 Preferences 降噪）
+
+**现象**：每个 Hook 每次启动都刷一串 ERROR，把真正的故障淹掉：
+
+```
+E 配置写入异常：active::cloudmusic_no_smartplay_loading::com.netease.cloudmusic
+java.lang.UnsupportedOperationException: Read only implementation
+  at PrefsBridge.putBoolean(PrefsBridge.kt:69)
+  at PrefsBridge.markActive(PrefsBridge.kt:140)
+```
+
+**结论**：这不是故障。LSPosed 下发给模块的 RemotePreferences 是**只读实现**，
+`edit()` 必然抛 `UnsupportedOperationException`。UI 侧的「已生效」展示本来就不依赖它 ——
+`SettingsStore.rememberActiveProcesses()` 用本地 `local_seen_processes` 闭环记录，
+代码注释里 2026-10 就已写明「Hook 侧回写实测不稳定（`module_configs` 表始终为空），
+故改用本地记录」。所以**功能与展示均不受影响**，只是日志噪声。
+
+**改动**（`libhook/.../utils/PrefsBridge.kt`）：
+
+| 位置 | 改动 |
+|---|---|
+| `putBoolean()` | 新增 `isReadOnly(t)` 判定：只读 → `XLog.w` 一句话；其他异常（IO/权限/序列化）仍 `XLog.e` + 堆栈。判据以**异常类型**为主、消息文本为辅，消息为空也判只读，避免版本措辞差异导致漏判 |
+| `markActive()` | 诊断日志从 `XLog.e` 降为 `XLog.d`，且只在写入成功时回读校验；失败情形由 `putBoolean` 分级记录，不再重复刷 |
+
+**设计取舍**：没有选择「静默吞掉所有异常」，因为那样会把真正的写入故障也藏起来。
+只读是**预期内状态**（降级为 WARN），其余仍报 ERROR。
+
+**验证**：`BUILD SUCCESSFUL`。下次真机日志里应只剩一行 `W 配置为只读实现，跳过写入`。
+
+### 2026-10-26（网易云 `cloudmusic_no_smartplay_loading` 二次失效修复）
+
+**现象**：9.6.13 上弹窗照旧，但日志说挂载成功（Toast 也提示成功）：
+
+```
+D 已知名单命中：com.netease.cloudmusic.activity.ma
+I 已挂载：...ma#showDialog（拦截加载弹窗）
+I Hook 装载成功（拦截 1 个）
+```
+
+**排查结论**：类名没漂、签名没变，问题是**全日志没有任何一条「已拦截」** ——
+`showDialog` 从未被调用。扫描 9.6.13 全部 20 个 dex 发现，声明
+`showAIModeLoadingDialog(Z,String)V` 的类有**两个**：播放页基类 `activity.ma`，
+以及 `com.cmbridge` 桥接实现 `i1.c`（经 `ServiceLoader.put(kj2.b.class, ...)` 注册，
+9.6.08 无此注册）。只挂 `ma` 那一份，桥接路径照旧弹窗。
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `libhook/.../rules/cloudmusic/CloudMusicNoSmartPlayLoadingHook.kt` | hook 点从 `showDialog` 换成上游唯一入口 `showAIModeLoadingDialog`；`resolveHosts()` 返回**全部**承载类并逐个挂；已知名单只保留播放页基类（桥接实现是纯混淆名，交给 DexKit 覆盖） |
+| `libhook/.../utils/DexAnchorScanner.kt` | 新增 `findDeclaringClasses()` 返回所有命中类（旧 `findDeclaringClass()` 只返回唯一命中，遇两份实现会直接放弃）；`RULE_REVISION` 1→2 让旧缓存失效；缓存改存逗号分隔的多个类名 |
+| `docs/HOOKS.md` §11、`docs/混淆名Hook方案.md` §一 | 记录「一份功能两份实现」这种失效形态与判据（只认「已拦截」不能只认「已挂载」） |
+
+**为什么挂上游更安全**（相比继续加挂第二个 `showDialog`）：入口直接返回后，
+`isPrepareShow` 保持 false（旧方案会留下「已置 true 但永不弹」的脏状态）、
+红心 webp 连下载都不发起（旧方案动画已 start 却因 Dialog 未创建而无人 stop）、
+`dismissAIModeLoadingDialog()` 首句判 null 故所有调用点安全空转。
+**明确不碰** `handleMessage` / `dispatchPlayCommand` —— 那两个覆盖 12+ 个播放相关分支。
+
+**验证**：`BUILD SUCCESSFUL`；产物 dex 核对确认方法名常量与类结构正确、
+`ma` / `i1.c` 两处目标方法均为真实 `invoke-direct` 调用（未被 R8 内联）。
+**真机复测待做**（本次未连 adb）。
 
 ### 2026-10-24（启动提示支持按应用单独开关）→ **v1.2.0 (10200)**
 

@@ -27,6 +27,63 @@ loadHook()  → 依然 markActive() + 记「装载成功」   // SpaceHookEntry.
 （`<init>(activity.ma, int)` + `invoke()`），里面根本没有 `showDialog`。
 所以「`Class.forName` 成功」**不等于**「目标方法还在」。
 
+**最隐蔽的第三种：定位全对，但只挂到了两份实现中的一份。**（2026-10-26 实测）
+
+网易云 9.6.13 里「心动模式加载弹窗」被编译出**两份独立实现**，各自声明了
+同名同签名的 `showAIModeLoadingDialog(Z,String)V`：播放页基类 `activity.ma`
+一份、`com.cmbridge` 桥接实现 `i1.c` 一份（后者通过
+`ServiceLoader.put(kj2.b.class, "com.cmbridge.CMMiniBarMessageServiceDefaultImpl", i1.c.class, false)`
+注册，9.6.08 没有这条注册）。
+
+此时日志长这样 —— 每一项检查都「通过」，功能却失效：
+
+```
+D 已知名单命中：com.netease.cloudmusic.activity.ma     ← 类对、方法在
+I 已挂载：...ma#showDialog（拦截加载弹窗）              ← 挂载真的成功了
+I Hook 装载成功（拦截 1 个）
+```
+
+**判据：看有没有「已拦截」这行动态日志。** 只有「已挂载」而没有「已拦截」，
+说明方法从未被调用 —— 要么挂在错误的路径上，要么同类实现还有别的一份没挂。
+
+**所以「方法签名唯一」这个假设不成立。** 定位时必须取**全部**声明该方法的类
+（`DexAnchorScanner.findDeclaringClasses()`），不能取「唯一命中就收工」。
+
+### 第三种之外还有一层：**Tinker 热更新会让 Hook 挂在「错的类」上**（2026-10-26 实测）
+
+即使定位全对、两份实现都挂上，仍然可能零触发。网易云音乐的日志证据：
+
+```
+14:39:43.278  SpaceHook 已挂载 ma#showAIModeLoadingDialog
+14:39:43.313  Tinker.TinkerLoader: tryLoad ...          ← 比 Hook 晚 35ms
+14:39:43.318  after loaded classloader:
+              DelegateLastClassLoader[DexPathList[[
+                /data/user/0/<pkg>/tinker/patch-<id>/dex/tinker_classN.apk]]]
+14:39:43.323  TinkerLoadResult: tinker load all success
+```
+
+两个独立的问题叠加：
+
+| 问题 | 后果 |
+|---|---|
+| **时序**：Hook 在补丁装载前就挂完了 | 挂到的是 base.apk 里那份类 |
+| **优先级**：`DelegateLastClassLoader` 让补丁里的类**覆盖**同名类 | 实际执行的是补丁里那份类 |
+
+两个 Method 对象不同 → 日志显示「已挂载」、实际「零触发」。
+
+**而且 DexKit 只扫 base.apk 的话，补丁里新增的实现永远发现不了。**
+
+应对（已落在 `CloudMusicNoSmartPlayLoadingHook`）：
+
+1. `DexAnchorScanner.tinkerPatchDexPaths()` 枚举 `/data/user/0/<pkg>/tinker/patch-*/dex/*.apk`；
+2. 扫描时把这些路径作为 `extraScanPaths` 一起扫，结果取并集；
+3. 补挂线程轮询，**用当前生效的加载器**重新解析并挂新类
+   （关键：不能复用最初那个 `classLoader`，`Class.forName` 会返回旧加载器里的类）；
+4. 日志打印类的来源（`base.apk` / `Tinker补丁`），一眼看出挂在哪一层。
+
+> **判别方法**：日志里「已挂载」有、但「已拦截」从来没有 → 优先怀疑热更新/多加载器。
+> 任何用 Tinker（`TinkerApplicationInlineFence`、`Tinker.TinkerLoader`）的 App 都要考虑这一层。
+
 ---
 
 ## 二、R8 能改什么、不能改什么
