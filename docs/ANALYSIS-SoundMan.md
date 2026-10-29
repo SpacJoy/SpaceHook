@@ -126,7 +126,7 @@
 ## 6. 风险与脆弱点
 
 1. **鉴权空洞（最严重，移植必须修复）**：REQUEST_BINDER 广播无权限保护；`HostOfferPublisher` 对 sendFromUid/sentFromPackage 只记日志；`hostService.authenticateBinderCaller` 仅打日志不校验 uid；`registerClient` 只验协议版本——**任何知道协议的 App 都能连 host 并 replaceRules/setVolume/setRoute 改全局规则**。SpaceHook 若保留 IPC，必须加签名级/UID 校验。
-2. **system_server 稳定性**：4 个 hook 均轻量（ThreadLocal + post worker），安全；但 `systemReady` 初始化失败 rethrow 会放大开机失败。原实现**无显式 deoptimize**（grep 证实），依赖 YukiHookAPI/LSPlant 处理内联——移植时应按 adb_stay_awake 惯例对关键 hook 点做 deoptimize。
+2. **system_server 稳定性**：4 个 hook 均轻量（ThreadLocal + post worker），安全；但 `systemReady` 初始化失败 rethrow 会放大开机失败。原实现**无显式 deoptimize**（grep 证实），依赖 YukiHookAPI/LSPlant 处理内联——移植时应按 system_server 侧 Hook 的通用经验，对关键 hook 点做 deoptimize。
 3. **SystemUI 崩溃面**：反射全走 optional + try/catch 软失败，任何漏出异常直接拖死 SystemUI。
 4. **ROM 耦合**（原项目声明 Android 16/API 36+）：`mIPlayer`、`baseUpdateAudioAttributes`（HyperOS 特化，AOSP 应走 setAudioAttributes 分支）、AudioSystemAdapter、miwallpaper 剔除、SYSTEM_UI_SETTINGS prefs、HyperOS 侧栏、ignore-focus 多播假设。AOSP 下 AudioService 4 点/常量可用，但多 app 同播依赖小米焦点策略，价值降低。
 5. **字符串失效面**：方法名（setBackground/showH/dismissH/updateExpandedH）与 o3_* 资源名随版本改名。
@@ -135,7 +135,7 @@
    - 入口间距禁止实测兜底（正反馈越撑越高）。
    - HyperLight `SIZE_TIER=0` 参数坑。
    - `GenerationGate` 防后台结果触碰已关闭代际 View；`panelSetRoute` 禁主线程 + CountDownLatch 超时。
-   - 错配返回值类型 → system_server 开机崩溃（同 adb_stay_awake 的坑）：`chain.proceed()` 返回值必须与被 hook 方法真实返回类型一致（int/long 按原值运行时类型）。
+   - 错配返回值类型 → system_server 开机崩溃（此前 system_server 移植中实测过的坑）：`chain.proceed()` 返回值必须与被 hook 方法真实返回类型一致（int/long 按原值运行时类型）。
 
 ---
 
@@ -153,7 +153,7 @@
 | `prefs` 跨进程配置 | `PrefsBridge` + `getRemotePreferences(Constants.PREFS_GROUP)` |
 | 无 | `ctx.module.deoptimize(m)`（原实现缺失，移植时补上） |
 
-⚠️ `chain.proceed()` 返回值类型必须匹配被 hook 方法真实返回类型（adb_stay_awake 的 bootloop 坑）。
+⚠️ `chain.proceed()` 返回值类型必须匹配被 hook 方法真实返回类型（否则 system_server 会开机循环崩溃）。
 
 ### 7.2 范围分级（用户决策：先只出分析报告，本节供实施时参考）
 
@@ -189,4 +189,4 @@
 ## 8. 参考资料
 
 - 原项目 README：按应用音量 / 按应用固定输出设备（最多 3 条链路：MEDIA/铃声/闹钟）/ HyperOS 音量侧栏入口。
-- 本项目相关：`docs/HOOKS.md` 第 6 节（adb_stay_awake，system_server hook 的先例与 bootloop 坑）、`docs/ARCHITECTURE.md`（libxposed API 102 签名）。
+- 本项目相关：`docs/ARCHITECTURE.md`（libxposed API 102 签名）。

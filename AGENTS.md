@@ -93,7 +93,6 @@ Xposed.spacejoy.top/
 │               │   └── MeterReader.kt              sysfs / 粘性电池广播 / TrafficStats 只读数据源
 │               ├── soundrecorder/DisableListAutoPlayHook.kt
 │               ├── douyin/DouYinNoCropHook.kt（+ NoCropFitApplier / NoCropReflect / NoCropVideoAspect）
-│               ├── system/AdbStayAwakeHook.kt（system_server）
 │               └── generic/InstallerRedirectHook.kt
 └── app/                         UI 层（模块 App）
     └── src/main/java/top/spacejoy/spacehook/
@@ -357,7 +356,7 @@ JADX_JAR="D:/Otheapps/jadx-gui/lib/jadx-gui-1.5.6-all.jar"
 | SignHook | `xihan123/SignHook` | `2185ff1` 2026-06-21 | 同上，仅备查（**未分析**） |
 | Capsulyric | `FrancoGiudans/Capsulyric` | `dd020bc` 2026-09-28 | 同上，仅备查（**未分析**） |
 | SoundMan | `killerprojecte/SoundMan` | `963c360` 2026-10-01 | 按应用音量 / 按应用固定输出设备 / HyperOS 音量侧栏入口（YukiHookAPI，hook 目录约 14,000 行）；**分析完成，见 `docs/ANALYSIS-SoundMan.md`**（2026-10-03，移植未开始） |
-| AdbStayAwake | `GeneralPeople1970/AdbStayAwake` | `2eb2e74` 2026-09-21 | ADB 调试时保持屏幕常亮（libxposed API 102 单文件模块）；**已移植为 `adb_stay_awake`**（2026-10-03，见 `docs/HOOKS.md` 第 6 节） |
+| AdbStayAwake | `GeneralPeople1970/AdbStayAwake` | `2eb2e74` 2026-09-21 | ADB 调试时保持屏幕常亮（libxposed API 102 单文件模块）；**曾移植为 `adb_stay_awake`，2026-10-29 已按需求移除**，仅保留作参考 |
 
 **用 HyperCeiler 找参考时的两个坑（已实测）**：
 

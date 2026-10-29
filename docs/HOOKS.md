@@ -1,6 +1,7 @@
 # Hook 功能清单与 hook 点定位表
 
-> **复核状态**：13 个 Hook，hook 点已全部实测验证（2026-09-26 ~ 2026-10-17）。
+> **复核状态**：当前共 14 个 Hook；其中 13 个已单独成节并实测验证（2026-09-26 ~ 2026-10-17），
+> `mini_heads_up` 尚未补章节。
 > 工具链路：`jadx-headless-mcp-v2`（32 个 MCP 工具）+ jadx CLI 全量反编译
 > （jadx-ai-mcp 插件已弃用；jadx-GUI 不再打开，all.jar 仅 CLI 模式）；
 > 抖音（55 个 dex）改用 `dexdump`（build-tools 36.1.0）按 class_defs 逐类验证。
@@ -16,7 +17,6 @@
 | `disable_list_autoplay` | 录音机 8.1.5-779121d13 | 5,385 类 | ⚠️→✅ **1 处已失效并修正**（`o1` → `q1`） |
 | `installer_redirect` | Android Framework API | 无需反编译 | ✅ 均为稳定公开 API |
 | `douyin_nocrop` | 抖音 40.6.0（400601） | 55 个 dex | ✅ **5/5 hook 点全部正确** |
-| `adb_stay_awake` | AOSP Framework（system_server） | 无需反编译 | ✅ 移植自 AdbStayAwake（libxposed API 102 同源） |
 | `cc_card_order` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSControlCenterList`，8 个控制器 `getPriority` |
 | `cc_card_tiles` | 系统界面组件 18.3.2.22.0 | 4,525 类 | ✅ 参考 HyperStar `QSCardTileList`，`QSController#getCardStyleTileSpecs` |
 | `status_bar_meter` | 系统界面 17.03.260226.r | 30,160 类 | ✅ 接管 `NetworkSpeedView`，真机已验证（功耗 / 电流 / CPU 温度 / 电池温度） |
@@ -336,78 +336,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 
 ---
 
-## 6. adb_stay_awake —— ADB 调试常亮 ✅
-
-| 项 | 值 |
-|---|---|
-| 目标进程 | **system_server**（`scope.list` 的 `system`） |
-| 目标 App | `Constants.TARGET_SYSTEM`（"system"），UI 归入「系统应用 → 系统框架」 |
-| 来源 | 参考项目 **AdbStayAwake**（`GeneralPeople1970/AdbStayAwake`，`2eb2e74` 2026-09-21），单文件 `MainModule.java`（libxposed API 102，与本项目同 API）；**触发条件已按需求收紧**（见「与原实现的差异」） |
-| 实现 | `libhook/.../rules/system/AdbStayAwakeHook.kt` |
-| 默认 | 开启；**需重启设备**生效（system_server 无法单独重启） |
-
-### 功能语义（2026-10-03 语义收紧：连接调试工具才常亮）
-
-**常亮判定**（改动核心）：
-
-```
-常亮 = adb_enabled == 1  &&  ( adb_connected == 1  ||  USB 线上启用 adb function )
-```
-
-1. **监听 ADB 连接状态**：`ContentObserver` 同时跟踪 `Settings.Global.ADB_ENABLED`（前置开关）与
-   `Settings.Global.ADB_CONNECTED`（"adb_connected"，adbd 连接状态，USB / 无线连接均会翻转），
-   另注册 `BroadcastReceiver` 跟踪 `android.hardware.usb.action.USB_STATE`（sticky 系统广播，
-   `connected=true` 且 `functions` 含 "adb"）作 USB 兜底；三者缓存于 `@Volatile` 字段。
-2. **强制保持常亮**：**已连接调试工具**时让 `getScreenOffTimeoutLocked` 返回 `Integer.MAX_VALUE`
-   （约 24.8 天），系统永不因超时自动熄屏；仅开着调试开关但未连接时不再强制常亮。
-3. **允许手动锁屏**：不 Hook 任何电源键路径 —— `goToSleep` 不经过屏幕超时计算，按电源键立即锁屏。
-4. **断开后恢复**：不永久修改任何系统字段；调试工具断开时透传 `chain.proceed()` 原值，
-   原有屏幕超时设置立即自动生效。
-
-### hook 点（AOSP Framework，名称稳定，无需反编译）
-
-| hook 点 | 作用 |
-|---|---|
-| `com.android.server.power.PowerManagerService#getScreenOffTimeoutLocked`（所有重载） | 返回极大超时值 |
-| `…#updateUserActivitySummaryLocked` / `…#updatePowerStateLocked` | 仅 `deoptimize()`，规避方法内联导致 Hook 不触发 |
-| `android.provider.Settings$Global.ADB_ENABLED` + `ContentObserver` | 前置开关跟踪（非 hook，是监听） |
-| `android.provider.Settings$Global.ADB_CONNECTED` + `ContentObserver` | adbd 连接状态跟踪（非 hook，是监听） |
-| `android.hardware.usb.action.USB_STATE` + `BroadcastReceiver` | USB adb 连接兜底信号（sticky 广播，注册即得当前值） |
-
-### 两个关键坑（原实现实测踩过，Kotlin 移植已保留处理）
-
-1. **返回值类型必须与被 Hook 方法的真实返回类型一致**：不同 ROM 上 `getScreenOffTimeoutLocked`
-   返回 `int` 或 `long`（Xiaomi HyperOS / Android 15 为 `long`）。类型不匹配时框架 PROTECTIVE 模式
-   回填抛 `ClassCastException` → system_server 开机崩溃 bootloop。处理：以 `chain.proceed()`
-   原返回值的运行时类型为准（`is Long` → 返回 `Integer.MAX_VALUE.toLong()`），从根本上避免错配。
-2. **懒注册 ADB 监听的时机在 `mLock` 内**：`ensureAdbObserver` 由 `getScreenOffTimeoutLocked`
-   在持有 `PowerManagerService.mLock` 时调用，**绝不能**在其中做 Binder IPC（读 Settings /
-   注册 ContentObserver），否则锁序颠倒 / Watchdog 超时。处理：只做廉价反射取 `mContext`，
-   真正的注册工作 `Handler(mainLooper).post { … }` 投递到主线程，彻底脱离 mLock；
-   注册失败复位调度标志允许重试。
-
-### 与原实现的差异
-
-- **触发条件收紧（2026-10-03，用户需求）**：原实现「开启 USB / 无线调试（`adb_enabled=1`）即常亮」；
-  本实现改为「**已连接调试工具才常亮**」= `adb_enabled && (adb_connected || USB adb)`。
-  信号源：`Settings.Global.ADB_CONNECTED`（AOSP 由 AdbService / AdbDebuggingManager 在
-  连接建立 / 断开时更新，USB 与无线均翻转）+ `USB_STATE` sticky 广播兜底。
-  **⚠️ 真机实测结论（2026-10-03，HyperOS / Android 16，25098PN5AC）**：
-  - 判定链路全部正常：`settings put global adb_connected 1` → 超时变 `2147483647`；
-    置 `0` → 恢复原值 `30000`（ContentObserver 监听、判定、常亮、恢复均按预期工作）。
-  - **但 HyperOS 不维护 `adb_connected`**（`settings get global adb_connected` 返回 `null`，
-    该 key 从不写入）→ **无线调试连接场景下主信号缺失**：真实连着 adb 也不常亮。
-  - 待办（方案 B）：改走 hook `AdbDebuggingManager` / adbd 连接回调取得真实连接状态
-    （需反编译 HyperOS framework 确认类名 / 方法名）；USB 场景暂靠 `USB_STATE` 广播兜底（待插线实测）。
-- 原实现额外 `deoptimize()` 被 Hook 方法本身（best-effort）；移植版沿用，并由 `hookExecutable`
-  的 try-catch 兜底，失败不影响主流程。
-- 原实现为无界面独立模块；本实现进 `HookCatalog` 体系，受四级开关闸门控制
-  （总开关 / 安全模式 / `app_master::system` / `hook::adb_stay_awake`）。
-- UI：系统框架卡片隐藏「单独重启」按钮（system_server 不能 force-stop），提示重启设备生效。
-
----
-
-## 7. cc_card_order —— 控制中心卡片排序 ✅
+## 6. cc_card_order —— 控制中心卡片排序 ✅
 
 | 项 | 值 |
 |---|---|
@@ -446,7 +375,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 
 ---
 
-## 8. cc_card_tiles —— 磁贴卡片自定义内容 ✅
+## 7. cc_card_tiles —— 磁贴卡片自定义内容 ✅
 
 | 项 | 值 |
 |---|---|
@@ -478,11 +407,11 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 
 ---
 
-## 9. status_bar_meter —— 状态栏功耗/温度仪表 ✅
+## 8. status_bar_meter —— 状态栏功耗/温度仪表 ✅
 
 | 项 | 值 |
 |---|---|
-| 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt`（配置 + 贡献者）、`.../systemui/meter/StatusBarMeterHookBase.kt`（hook 点与视图，与 §10 共用）、`.../meter/StatusBarMeterState.kt`（合并渲染）、`.../meter/MeterReader.kt`（数据源） |
+| 实现类 | `libhook/.../rules/systemui/StatusBarMeterHook.kt`（配置 + 贡献者）、`.../systemui/meter/StatusBarMeterHookBase.kt`（hook 点与视图，与 §9 共用）、`.../meter/StatusBarMeterState.kt`（合并渲染）、`.../meter/MeterReader.kt`（数据源） |
 | 目标进程 | `com.android.systemui`（主 APK，非插件） |
 | 参数 | 20 项（见「参数页形态」）：4 槽位 + 排布 / 数值格式 / 字体 / 对齐 / 宽度 / 边距 / 空隙 + 刷新间隔 |
 | 参数 UI | 走**独立整屏页**（`HookParam.FullPage` → `HookParamsScreen`），形态同「控制中心卡片排序」 |
@@ -493,7 +422,7 @@ Feed 流视频 / 图集按**原始宽高比完整显示**（等比贴合全屏�
 接管状态栏「实时网速」的显示位置，改为显示所选指标：功耗（W）、电流（mA）、
 CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
-> 网速已拆成独立的 `status_bar_speed`（见 §10）—— 两者共用同一个原生显示位，
+> 网速已拆成独立的 `status_bar_speed`（见 §9）—— 两者共用同一个原生显示位，
 > 同时开启时按「仪表在前、网速在后」合并成单行 / 双行文本。
 
 ### 参数页形态
@@ -601,7 +530,7 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 ---
 
-## 10. status_bar_speed —— 状态栏实时网速 ✅
+## 9. status_bar_speed —— 状态栏实时网速 ✅
 
 | 项 | 值 |
 |---|---|
@@ -618,7 +547,7 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 ### 参数页形态
 
-结构同 §9：**独立整屏页**，逐行 −/＋ 步进 + 点数字手动输入。
+结构同 §8：**独立整屏页**，逐行 −/＋ 步进 + 点数字手动输入。
 
 | 参数 | 类型 / 选项 | 默认 |
 |---|---|---|
@@ -673,12 +602,12 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
 
 1. **hook 点只能装一次**：两个 Hook 都会走 `onHook()`，靠
    `StatusBarMeterState.claimInstaller()` 保证只装一遍（后到的只注册贡献者）。
-2. 其余坑同 §9（`-$$Nest$mupdateVisibility` 钉字段、改参必须 `proceed(Object[])`、
+2. 其余坑同 §8（`-$$Nest$mupdateVisibility` 钉字段、改参必须 `proceed(Object[])`、
    定时器里先 `setVisibilityByController(true)` 再写文本）。
 
 ---
 
-## 11. cloudmusic_no_smartplay_loading —— 去掉心动模式加载弹窗 ✅
+## 10. cloudmusic_no_smartplay_loading —— 去掉心动模式加载弹窗 ✅
 
 | 项 | 值 |
 |---|---|
@@ -874,7 +803,7 @@ APK 自带 native 风控（`libsec-lib.so` / `libnetmobsec-4.4.7.so` / `libnetde
 
 ---
 
-## 12. alarm_swap_snooze_dismiss —— 上滑改为延迟提醒 ✅
+## 11. alarm_swap_snooze_dismiss —— 上滑改为延迟提醒 ✅
 
 | 项 | 值 |
 |---|---|
@@ -950,7 +879,7 @@ private fun isTimerScreen(activity: Any?): Boolean =
 
 ---
 
-## 13. alarm_swipe_dismiss_distance —— 加长上滑距离 ✅
+## 12. alarm_swipe_dismiss_distance —— 加长上滑距离 ✅
 
 | 项 | 值 |
 |---|---|
@@ -989,7 +918,7 @@ if ((yvel >= -mFlingVelocity || mScrollPercent <= 0.15f) && mScrollPercent <= 0.
 
 ---
 
-## 14. amap_default_route —— 高德默认出行方式 ✅
+## 13. amap_default_route —— 高德默认出行方式 ✅
 
 | 项 | 值 |
 |---|---|
@@ -1072,7 +1001,7 @@ PlanHomePresenter#onPageCreated / #onNewIntent
 
 ---
 
-## 15. 新增 Hook 的模板
+## 14. 新增 Hook 的模板
 
 ```kotlin
 package top.spacejoy.spacehook.libhook.rules.xxx

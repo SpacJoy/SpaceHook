@@ -24,14 +24,6 @@ object HookCatalog {
             category = AppCategory.SYSTEM,
             note = "锁屏 / 状态栏 / 控制中心；也承载「系统界面组件」的插件代码",
         ),
-        // 系统框架（system_server）：特殊目标，包名固定为 Constants.TARGET_SYSTEM（"system"）。
-        // 与普通 App 不同，它只能通过「重启设备」重新加载 Hook，UI 侧据此隐藏单独重启按钮。
-        TargetApp(
-            packageName = Constants.TARGET_SYSTEM,
-            displayName = "系统框架",
-            category = AppCategory.SYSTEM,
-            note = "system_server；改动需重启设备生效",
-        ),
         TargetApp(
             packageName = "com.miui.aod",
             displayName = "息屏显示",
@@ -226,25 +218,6 @@ object HookCatalog {
             hookPoints = listOf(
                 "com.netease.cloudmusic.activity.PlayerActivity（manifest 锚点，R8 不可改名）" +
                     " → 父类链上声明 showDialog(boolean,String) 的祖先（9.6.13 = activity.ma，9.6.08 = activity.ha）",
-            ),
-        ),
-        HookMeta(
-            id = "adb_stay_awake",
-            name = "ADB 调试常亮",
-            description = "**已连接调试工具时**（adb connect 在线 / USB 线启用 adb）屏幕永不因超时熄屏，" +
-                "方便长时间调试；断开调试工具后自动恢复原有屏幕超时设置。电源键锁屏不受影响。" +
-                "作用于系统框架（system_server），需重启设备生效。",
-            targetPackages = listOf(Constants.TARGET_SYSTEM),
-            category = HookCategory.SYSTEM_FRAMEWORK,
-            defaultEnabled = true,
-            requiresReboot = true,
-            hookPoints = listOf(
-                "com.android.server.power.PowerManagerService#getScreenOffTimeoutLocked(所有重载)",
-                "com.android.server.power.PowerManagerService#updateUserActivitySummaryLocked（去优化，规避内联）",
-                "com.android.server.power.PowerManagerService#updatePowerStateLocked（去优化，规避内联）",
-                "android.provider.Settings\$Global#ADB_ENABLED（ContentObserver 监听，前置条件）",
-                "android.provider.Settings\$Global#ADB_CONNECTED（ContentObserver 监听，adbd 连接状态）",
-                "android.hardware.usb.action.USB_STATE（BroadcastReceiver，USB adb 兜底信号）",
             ),
         ),
         HookMeta(

@@ -7,7 +7,6 @@ import top.spacejoy.spacehook.libhook.rules.clock.AlarmSwipeDismissDistanceHook
 import top.spacejoy.spacehook.libhook.rules.douyin.DouYinNoCropHook
 import top.spacejoy.spacehook.libhook.rules.generic.InstallerRedirectHook
 import top.spacejoy.spacehook.libhook.rules.soundrecorder.DisableListAutoPlayHook
-import top.spacejoy.spacehook.libhook.rules.system.AdbStayAwakeHook
 import top.spacejoy.spacehook.libhook.rules.systemui.CardStyleTilesHook
 import top.spacejoy.spacehook.libhook.rules.systemui.ControlCenterOrderHook
 import top.spacejoy.spacehook.libhook.rules.systemui.DeviceCenterSizeHook
@@ -57,9 +56,6 @@ object HookRegistry {
 
         // ===== 高德地图 =====
         "amap_default_route" to { AmapDefaultRouteHook() },
-
-        // ===== 系统框架（system_server） =====
-        "adb_stay_awake" to { AdbStayAwakeHook() },
     )
 
     /** 已注册的全部 Hook id */

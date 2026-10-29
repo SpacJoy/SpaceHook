@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-26（v1.2.1：网易云 Hook 二次失效修复 + Tinker 热更新感知）
+> 最后更新：2026-10-29（移除 `adb_stay_awake` hook 及其全部残留引用）
 
 ---
 
@@ -20,7 +20,7 @@
 | 9 | 4 个 Hook 的 jadx 复核 | ✅ 完成 | LockColon 9/9 ✅、DeviceCenterSize 4/4 ✅、DisableListAutoPlay 修正 1 处、InstallerRedirect 用稳定框架 API |
 | 10 | 真机部署验证 | ✅ **成功** | Xiaomi 25098PN5AC / Android 17(API 37) / LSPosed 2.2.0-it；3 个进程注入成功，Hook 全部装载 |
 | 11 | 抖音不裁剪 Hook（移植 douyinnocrop v1.1.0） | ✅ 完成 | 5/5 hook 点经抖音 40.6.0（400601）dexdump 复核；修正原实现 2 个 bug；构建通过，待真机验证 |
-| 12 | ADB 调试常亮 Hook（移植 AdbStayAwake） | ✅ 完成 | **首个 system_server Hook**；hook `PowerManagerService#getScreenOffTimeoutLocked`（ADB 开启时返回极大超时值）；构建通过，待真机验证 |
+| 12 | ADB 调试常亮 Hook（移植 AdbStayAwake） | ❌ 已移除 | 2026-10-29 按需求完整删除（`adb_stay_awake`）：hook 实现 / `HookRegistry` 映射 / `HookCatalog` 元数据与「系统框架」TargetApp / `scope.list` 的 `system` 行全部移除；`HookCategory.SYSTEM_FRAMEWORK` 保留待后续 system_server 功能挂入 |
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
@@ -218,7 +218,8 @@
 > 这里不重复表格，避免两处漂移。
 >
 > ⚠️ 全部在 `D:/Code/Android/Projects/Referenzprojekt/` 下（2026-10-02 从 `OSHook/references` 迁来）：
-> HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric / SoundMan / AdbStayAwake。
+> HyperCeiler / HyperStar / HyperIsland / InstallerX-Revived / janus / SignHook / Capsulyric / SoundMan / AdbStayAwake
+> （AdbStayAwake 对应的 `adb_stay_awake` 功能已于 2026-10-29 移除，参考目录本身保留）。
 > **部分可能落后上游**（`InstallerX-Revived` 是 tarball 快照、无 git 历史），作者有空再自行 `git pull`。
 > 文档里的「最后提交」只是**登记那一刻的快照，不要据此断定版本** —— 用之前先 `git log -1` 核对。
 
@@ -348,6 +349,47 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-29 移除 `adb_stay_awake`（ADB 调试常亮）Hook
+
+**需求**：完整删除该 hook，并清理因删除而失效的引用、导入、资源与注释，不残留任何引用；
+若存在与它关联但被其他功能共用的代码，保留共用部分并说明处理方式。
+
+**删除清单（代码层）**：
+
+| 位置 | 处理 |
+|---|---|
+| `libhook/.../rules/system/AdbStayAwakeHook.kt`（322 行） | 删除整个文件；`rules/system/` 目录随之清空后一并删除 |
+| `libhook/.../base/HookRegistry.kt` | 删除 `AdbStayAwakeHook` 的 import 与 `"adb_stay_awake" to { … }` 映射，以及「系统框架（system_server）」分组注释 |
+| `common/.../HookCatalog.kt` | 删除 `adb_stay_awake` 的 `HookMeta`（含 6 条 hookPoints）；删除 `Constants.TARGET_SYSTEM` 的 `TargetApp`（「系统框架」卡片） |
+| `libhook/src/main/resources/META-INF/xposed/scope.list` | 删除 `system` 行（该行仅为此 hook 而存在） |
+
+**保留的共用部分（未删除，仅说明）**：
+
+- **`Constants.TARGET_SYSTEM`（"system"）常量**：保留。它不只是这个 hook 的包名，还是
+  `SpaceHookEntry.onSystemServerStarting()` → `dispatch(TARGET_SYSTEM, …)` 的入口标识，
+  以及 `HookMeta.TargetApp.isSystemServer`、`HookCatalog.installedPackages()`、
+  `HookListScreen`（系统框架卡片不显示「单独重启」）、`HookParamsScreen`（跳过 system_server 的重启目标）
+  的判定依据。这些是**框架级能力**，删除常量会让 system_server 分发链路编译不过，
+  未来任何 system_server Hook 都要重新加回来。
+- **`HookCategory.SYSTEM_FRAMEWORK("系统框架")`**：保留枚举值，当前无 Hook 使用。
+  处理方式与当初撤销「三合一状态图标」时保留 `STATUS_BAR` 一致 —— 分类是 UI 的稳定词表，
+  后续 system_server 功能（如 `docs/ANALYSIS-SoundMan.md` 的音频方案）可直接挂入，无需改 UI。
+  已补注释说明「当前暂无 Hook 使用」。
+- **`SpaceHookEntry.onSystemServerStarting()` 与 `dispatch(isSystemServer=…)`**：
+  这是 libxposed API 102 的生命周期回调，属于框架接线，不是该 hook 私有代码，保留。
+  当前 `system` 不在 `scope.list` 中，也不会再被 LSPosed 注入；回调保留无害且是后续 system_server
+  Hook 的必需入口。
+- **`docs/screenshots/12_hooklist_system.png`**：历史截图，保留（记录当时的 UI 状态，
+  不是被引用的资源文件，不影响构建与运行）。
+
+**验证**：`gradle --no-daemon :app:assembleDebug` → `BUILD SUCCESSFUL in 33s`
+（`:common:compileDebugKotlin` / `:libhook:compileDebugKotlin` / `:app:compileDebugKotlin` 全部重编通过）。
+全仓 grep `adb_stay_awake` / `AdbStayAwake` / 「ADB 调试常亮」在 `*.kt` / `*.list` / `*.prop` / `*.xml` 中零残留。
+
+**文档同步**：`docs/HOOKS.md`（删第 6 节、总览表删行、后续小节顺延编号、内部 § 引用同步）、
+`docs/PROGRESS.md`（本条目 + 进度表第 12 行标记已移除）、`AGENTS.md`（目录结构删该文件、
+参考项目表补注已移除）、`README.md`、`docs/新手代码地图.md`、`docs/ANALYSIS-SoundMan.md`。
 
 ### 2026-10-26 ✅ 网易云 `cloudmusic_no_smartplay_loading` 真机验证通过（第四次适配）→ **v1.2.1 (10201)**
 

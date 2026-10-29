@@ -50,6 +50,13 @@ enum class HookCategory(val displayName: String) {
 
     /** 状态栏类（图标/时钟等），UI 上归入「状态栏」折叠子菜单 */
     STATUS_BAR("状态栏"),
+
+    /**
+     * 系统框架类（system_server）。
+     *
+     * 当前暂无 Hook 使用，保留枚举值供后续 system_server 侧功能挂入
+     * （与当初撤销「三合一状态图标」时保留 [STATUS_BAR] 的处理一致）。
+     */
     SYSTEM_FRAMEWORK("系统框架"),
     SOUND_RECORDER("录音机"),
     CLOCK("时钟"),
