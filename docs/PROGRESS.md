@@ -1,7 +1,7 @@
 # SpaceHook 开发进度
 
 > **交接必读**：本文件记录项目的实时状态。每次实质性改动后请更新「变更日志」一节。
-> 最后更新：2026-10-29（移除 `adb_stay_awake` hook 及其全部残留引用）
+> 最后更新：2026-10-29（修复 `status_bar_meter` 槽位「温度行消失」—— 样式通道隔离 + 自愈）
 
 ---
 
@@ -24,7 +24,7 @@
 | 13 | 控制中心卡片排序 / 磁贴卡片自定义（参考 HyperStar） | ✅ 完成 | `cc_card_order`（8 个控制器 `getPriority`）+ `cc_card_tiles`（`QSController#getCardStyleTileSpecs`）；hook 点定位见 HOOKS.md 第 7、8 节 |
 | 14 | SoundMan 移植分析 | ✅ 完成 | 两路子代理全量分析（音频核心 + SystemUI 入口）；报告见 `docs/ANALYSIS-SoundMan.md`；**移植未开始**（用户决策：先只出分析报告） |
 | 15 | 三合一状态图标 Hook（移植 com.aiden.combinedstatus 1.4.3） | ❌ 已撤销 | 2026-10-03 按需求取消移植：hook 实现 / 绘制层 / 配置 UI / 分析文档全部移除；`HookCategory.STATUS_BAR` 与「状态栏」折叠子菜单**保留**，待后续功能挂入 |
-| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修。参数页为独立整屏页，逐行 −/＋ 步进 + 点数字手动输入（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
+| 16 | 状态栏功耗/温度仪表 `status_bar_meter` | ✅ 完成 | 接管原生 `NetworkSpeedView` 显示功耗 / 电流 / CPU 温度 / 电池温度（最多 4 槽，单行或双行）。真机已验证装载与写入（`Hook 装载成功`、仪表文本正常刷新）；CPU 温度恒 95℃ 的根因（命中 `cpu-hw-trip-*` 阈值节点）已修；**2026-10-29 修掉「跑一段时间后温度行消失」**（系统配置刷新时槽位 `maxLines` 被自身 hook 改成 1，已用「样式通道隔离 + 专道 + 自愈」三层修掉，见变更日志）。参数页为独立整屏页，逐行 −/＋ 步进 + 点数字手动输入（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 17 | 整屏参数页 `HookParamsScreen` | ✅ 完成 | 新增 `HookParam.FullPage` 标记 + 通用整屏参数页（仿「控制中心卡片排序」形态）；`status_bar_meter` 改用该页，列表内联弹窗不再承载它的 10 个参数 |
 | 18 | 状态栏实时网速 `status_bar_speed` | ✅ 完成 | 从仪表里拆出的独立开关（用户需求：网速与功耗分开设置）。与 `status_bar_meter` 共用原生显示位：显示引擎抽到 `StatusBarMeterHookBase` + `StatusBarMeterState`，两个 Hook 各只提供一个文本贡献者，同时开启时按序合并。参数页与仪表共用同一个独立整屏页（仿 HyperCeiler 的形态重构已于 2026-10-04 回退） |
 | 19 | 参数页形态重构（仿 HyperCeiler） | ❌ 已回退 | `HookParam` 曾新增 `Toggle`（开关）/ `group`（分组标题）/ `dependsOn`（依赖某开关，关时置灰）/ `IntRange.unit`（显示单位），`HookParamsScreen` 重写为「总开关卡 + 分组参数卡 + 底部按钮」，行按类型渲染成开关行 / 下拉行 / 滑条行。真机验证曾通过（`分发完成：成功 6 / 共 6`），但**用户要求回退**（2026-10-04，显示不正常）：4 个 UI 文件退回重构前的逐行形态，`HookParam` 的 4 个新成员一并移除；**hook 层未受影响** |
@@ -349,6 +349,70 @@ Hook 页的二级/三级页面侧滑返回时**没有任何跟手动画**，松�
 ---
 
 ## 五、变更日志
+
+### 2026-10-29 修复 `status_bar_meter` 槽位「温度行消失」（样式通道隔离 + 自愈）
+
+**现象**：仪表跑一段时间后第二行（温度）消失，屏幕上只剩第一行功耗；重启 SystemUI 才恢复。
+心跳日志全程正常（`文本=[5.0w/42℃] 附着=true 可见=true`），说明**不是读不到，是画不出**。
+
+**实测复现**（Xiaomi 25098PN5AC / Android 17，21:05 → 21:35）：
+
+```
+21:24:30  心跳 文本=[2.1w/39℃] 宽=67          ← 正常，屏幕两行
+21:25:00  settings put system font_scale 1.1  ← 改一次系统字号
+21:25:31  心跳 文本=[2.0w/37℃] 宽=78          ← 文本仍两行，屏幕只剩第一行 ❌
+21:26:00  恢复 font_scale 0.9
+21:26:32  心跳 文本=[1.9w/42℃] 宽=69          ← 仍然坏的，不会自愈 ❌
+21:30:00  killall com.android.systemui
+21:30:20  屏幕恢复 1.8w / 42℃                  ← 立刻正常 ✅
+```
+
+「跑久了才消失」是**表观相关**：不是时间本身，而是这一天里迟早会来的那次系统配置刷新
+（改字号 / 改显示大小 / 切深色浅色 / 换主题 / 状态栏重建）。本次触发点是 19:56:26。
+
+**根因**：槽位视图是反射 new 出来的 `NetworkSpeedView`，所以同样会被
+`onDensityOrFontScaleChanged` / `onMiuiThemeChanged` 的 hook 扫到 → `applyStyle()` →
+`applyLayout()`，而 `applyLayout()` 里有 `number.maxLines = 1`（给原生「两个框各限一行」的规则）。
+槽位是**单 TextView + `\n` 双行**，被改成 1 行后第二行被裁掉，但字符串还在 —— 这就是
+「日志正常、屏幕没有」的唯一解释。
+
+**修复（三层，缺一不可）**：
+
+| 层 | 位置 | 作用 |
+|---|---|---|
+| 隔离（根因） | `StatusBarMeterHookBase.applyLayout()` 开头 `if (MeterSlot.isSlotView(view)) return` | 原生排布规则不再碰槽位 |
+| 专道 | `applyStyle()` 对槽位改走新增的 `MeterSlot.applyTextStyle()` | 只改字号 / 字重 / 对齐，绝不碰 `maxLines` / `isSingleLine` / `unit.visibility` / 容器结构 |
+| 自愈 | tick 里 `MeterSlot.repairIfBroken()`（带 `repairDiagLeft` 限流 warn） | 兜住所有未知路径，1 秒内修回，用户看不到故障 |
+
+**顺带修的两个问题**：
+
+1. **垂直位移污染**：原生 `updateResources$15()` 每次配置刷新都写
+   `mNetworkSpeedNumberText.setTranslationY(-number_offset)`（给原生错位双行用的），
+   槽位复用同一字段就被抬上去 → 文字整体上移、底部被切。新增 `resetTranslationY()`
+   在 `applyTextStyle()` / `write()` / `repairIfBroken()` 里归零，**只归零 Y** ——
+   容器的 `onLayout` 把所有子 View 摆在 x=0、位置全靠 `translationX`，归零 X 会滑到左边界。
+2. **诊断字段缺失**：心跳日志原先只有 `文本/附着/可见/宽/下标`，出问题只能靠截图反推。
+   现在补 `高 / 行数 / 单行 / 位移Y`，可直接判断是 `maxLines` 被改还是高度被压。
+
+**常量收敛**：槽位行数从 `create()` 里的字面量 `2` 提成 `MeterSlot.MAX_LINES`，
+`create()` 与 `repairIfBroken()` 共用，避免两处写死后不同步。
+
+**改动文件**：
+
+- `libhook/.../rules/systemui/meter/MeterSlot.kt`：`MAX_LINES` 常量、`applyTextStyle()`、
+  `resetTranslationY()`、`repairIfBroken()`、4 个诊断方法（`maxLinesForLog` /
+  `singleLineForLog` / `heightForLog` / `translationYForLog`）
+- `libhook/.../rules/systemui/meter/StatusBarMeterHookBase.kt`：`applyLayout()` 槽位守卫、
+  `applyStyle()` 槽位分支、tick 自愈调用、心跳日志补 4 个字段
+- `docs/HOOKS.md` §8「关键坑」新增第 7 条
+
+**验证**：`gradle --no-daemon :app:assembleDebug` → `BUILD SUCCESSFUL`，
+`app/build/outputs/apk/debug/app-debug.apk`（12.6 MB，versionName 1.2.1 / versionCode 10201）
+已 `adb install -r -t` 覆盖安装到 `192.168.31.5:5555`。**未做真机功能测试**（按约定由用户自行验证）。
+
+**待办（本次未动）**：`DeviceCenterSizeHook` 每次 `changeMode` 抛异常（被 `BaseHook` 兜住，
+不崩但污染日志，一天上百条）；`MeterReader.thermalGroups()` 在扫到的 `temp` 全是阈值残值时
+缓存不生效，可能每秒重扫 96 个 zone。两者都与本次故障无关，留作后续。
 
 ### 2026-10-29 移除 `adb_stay_awake`（ADB 调试常亮）Hook
 

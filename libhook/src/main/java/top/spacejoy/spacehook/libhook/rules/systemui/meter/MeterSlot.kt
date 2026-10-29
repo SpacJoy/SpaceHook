@@ -162,7 +162,7 @@ internal object MeterSlot {
             includeFontPadding = false
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             isSingleLine = false
-            maxLines = 2
+            maxLines = MAX_LINES
             // 两行文本默认行距偏大，状态栏高度有限，压紧一点
             setLineSpacing(0f, 0.92f)
         }
@@ -213,6 +213,8 @@ internal object MeterSlot {
         val number = textView ?: return
         if (number.text?.toString() != text) number.text = text
         // 不要碰 translationX：容器只靠它定位（onLayout 把所有子 View 都摆在 x=0）
+        // translationY 必须归零：原生 updateResources$15() 会写负偏移（见 applyTextStyle 注释）
+        resetTranslationY()
 
         // 颜色跟原生网速视图保持一致，主题切换（深/浅色）才能对上。
         // anchor 可能已经消失（超级岛占位），这时沿用上次记下的颜色，别把文字弄成默认黑。
@@ -254,6 +256,106 @@ internal object MeterSlot {
             else -> Gravity.END or Gravity.CENTER_VERTICAL
         }
     }
+
+    /**
+     * 槽位视图自己的样式通道：**只改字号 / 字重 / 对齐 / 位置归零，绝不碰 maxLines**。
+     *
+     * ## 为什么必须单独一条路
+     * 槽位视图是反射 new 出来的 `NetworkSpeedView`（原因见类注释），所以它同样会被
+     * `NetworkSpeedView.onDensityOrFontScaleChanged` / `onMiuiThemeChanged` 的 hook 扫到。
+     * 那条 hook 会调 `StatusBarMeterHookBase.applyStyle()` → `applyLayout()`，而 `applyLayout()`
+     * 里有 `number.maxLines = 1` —— 那是写给**原生网速视图**的规则（它把数字和单位拆成两个框）。
+     *
+     * 槽位视图是**单 TextView + `\n` 双行**，完全依赖 `maxLines = 2`。一旦被改成 1，
+     * 第二行（温度）就被裁掉，但字符串还在，于是「日志里有温度、屏幕上没有」。
+     * 实测：改一次系统字号即复现，重启 SystemUI 才恢复。
+     *
+     * ## 为什么必须在这里归零 translationY
+     * 原生 `NetworkSpeedView.updateResources$15()` 每次配置刷新都会执行：
+     * ```
+     * mNetworkSpeedNumberText.setTranslationY(-number_offset)   // 负值，向上抬
+     * mNetworkSpeedUnitText.setTranslationY(+unit_offset)
+     * ```
+     * 这是给原生「两个框上下错位叠成两行」用的。槽位视图复用同一个字段
+     * `mNetworkSpeedNumberText`，于是也被抬上去，表现为「文字整体上移、底部被切」。
+     * 原来 `applyLayout()` 末尾会归零 translationY，但那里已经对槽位视图 return 了，
+     * 所以必须在这里补回来 —— 否则还原字号也不会恢复。
+     */
+    fun applyTextStyle(fontSizeSp: Int, fontStyle: Int, align: Int) {
+        val number = textView ?: return
+        if (fontSizeSp > 0) {
+            number.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSizeSp.toFloat())
+        }
+        number.typeface = when (fontStyle) {
+            FONT_LIGHT -> Typeface.create("sans-serif-light", Typeface.NORMAL)
+            FONT_BOLD -> Typeface.create(number.typeface, Typeface.BOLD)
+            else -> Typeface.DEFAULT
+        }
+        number.paint.isFakeBoldText = fontStyle == FONT_BOLD
+        number.gravity = when (align) {
+            ALIGN_LEFT -> Gravity.START or Gravity.CENTER_VERTICAL
+            ALIGN_CENTER -> Gravity.CENTER
+            else -> Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        // 位置归零：原生 updateResources$15() 会把这个 TextView 的 translationY 设成
+        // 负偏移（给原生错位双行用的），在槽位里表现为整体抬升
+        resetTranslationY()
+    }
+
+    /**
+     * 把槽位 TextView 的**垂直**位移归零。
+     *
+     * 槽位靠 `LinearLayout` 正常排布 + `\n` 换行，不需要任何 translationY 错位；
+     * 一旦被原生写入非 0 值，文字就会偏出状态栏可视区（表现为「整体抬升、底部被切」）。
+     *
+     * **只动 translationY，绝不碰 translationX。** 容器 `MiuiStatusIconContainer.onLayout`
+     * 把所有子 View 都 layout 到 x=0，位置完全由 translationX 决定（见 [attachTo] 的注释）；
+     * 归零 X 会让视图滑到容器左边界。
+     */
+    private fun resetTranslationY() {
+        textView?.let { if (it.translationY != 0f) it.translationY = 0f }
+        // 占位单位框同样会被原生写 translationY，一并归零避免撑高容器
+        dummyUnit?.let { if (it.translationY != 0f) it.translationY = 0f }
+    }
+
+    /**
+     * 自愈：`maxLines` / `isSingleLine` / 垂直位移被外部改动过就改回去。
+     *
+     * 兜住所有已知和未知的样式刷新路径（原生 `setTextAppearance`、`updateResources$15()`、
+     * 主题切换、状态栏重建…），让用户看不到故障，而不是等重启 SystemUI。
+     *
+     * @return true 表示这次确实修过（调用方应打一条 warn，方便发现还有别的路径在改它）
+     */
+    fun repairIfBroken(): Boolean {
+        val number = textView ?: return false
+        var repaired = false
+        if (number.isSingleLine) {
+            number.isSingleLine = false
+            repaired = true
+        }
+        if (number.maxLines != MAX_LINES) {
+            number.maxLines = MAX_LINES
+            repaired = true
+        }
+        // 垂直位移也要兜：原生 updateResources$15() 每次配置刷新都会重设
+        if (number.translationY != 0f) {
+            resetTranslationY()
+            repaired = true
+        }
+        return repaired
+    }
+
+    /** 诊断用：当前实际行数配置（心跳日志里打出来，下次出问题不用靠截图反推） */
+    fun maxLinesForLog(): Int = textView?.maxLines ?: -1
+
+    /** 诊断用：当前是否被置成单行 */
+    fun singleLineForLog(): Boolean = textView?.isSingleLine ?: false
+
+    /** 诊断用：槽位视图自身高度（被裁时这里会异常小） */
+    fun heightForLog(): Int = slotView?.height ?: -1
+
+    /** 诊断用：文字框当前的垂直位移（非 0 说明被原生 updateResources$15() 抬升过） */
+    fun translationYForLog(): Float = textView?.translationY ?: 0f
 
     /** 卸下槽位（两个 Hook 不再同时启用时调用） */
     fun detach() {
@@ -324,6 +426,14 @@ internal object MeterSlot {
 
 
     private const val CLS_VIEW = "com.android.systemui.statusbar.views.NetworkSpeedView"
+
+    /**
+     * 槽位 TextView 的固定行数。
+     *
+     * 槽位用 `\n` 把多段文本拼进**同一个** TextView（见 `StatusBarMeterState.composeSlot()`），
+     * 双行显示完全依赖这个值，所以必须是常量、并且要能被 [repairIfBroken] 强制写回。
+     */
+    private const val MAX_LINES = 2
 
     private const val FONT_LIGHT = 1
     private const val FONT_BOLD = 2

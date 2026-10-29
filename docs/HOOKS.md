@@ -514,6 +514,35 @@ CPU 温度、电池温度。最多 4 项，可单行 / 双行排布。
    就**永远卡在 95℃**（`File.listFiles()` 顺序不保证，属必然踩中）。现在改为
    「黑名单（`trip`/`lvl`/`limit`/`ibat`/`bcl`/`sdr`/`vsense`/`virtual`/`dummy`）
    + 按 zone 序号排序 + 组内取最高 + 1 ~ 150℃ 范围校验」，本机读到 44 ~ 61℃ 的真实核心温度。
+7. **槽位视图必须走独立样式通道，否则「温度行」会被自己的 hook 裁掉**。
+   槽位视图是反射 new 出来的 `NetworkSpeedView`，因此同样会被
+   `onDensityOrFontScaleChanged` / `onMiuiThemeChanged` 的 hook 扫到，进而执行
+   `applyStyle()` → `applyLayout()`。而 `applyLayout()` 里写着 `number.maxLines = 1`
+   —— 那是给**原生网速视图**的规则（它把数字和单位拆成两个框、各限一行），
+   套到槽位上就把第二行温度裁掉；文本还在字符串里，于是表现为
+   **「心跳日志有两行、屏幕上只有一行」**。实测改一次系统字号即 100% 复现，
+   且不会自愈，必须重启 SystemUI。
+
+   修法分三层（缺一不可）：
+
+   | 层 | 位置 | 作用 |
+   |---|---|---|
+   | 隔离 | `StatusBarMeterHookBase.applyLayout()` 开头 `if (MeterSlot.isSlotView(view)) return` | 从根上不让原生排布规则碰到槽位 |
+   | 专道 | `applyStyle()` 对槽位改走 `MeterSlot.applyTextStyle()` | 只改字号 / 字重 / 对齐，**绝不碰 `maxLines` / `isSingleLine` / `unit.visibility` / 容器结构** |
+   | 自愈 | tick 里 `MeterSlot.repairIfBroken()` | 兜住所有未知路径（原生 `setTextAppearance`、状态栏重建…），1 秒内修回 |
+
+   同一个坑还有第二个副作用：原生 `updateResources$15()` 每次配置刷新都会执行
+   `mNetworkSpeedNumberText.setTranslationY(-number_offset)` /
+   `mNetworkSpeedUnitText.setTranslationY(+unit_offset)` —— 这是给原生「两个框上下错位
+   叠成两行」用的，槽位复用同一字段就被抬上去，表现为**文字整体上移、底部被切**。
+   `applyTextStyle()` / `write()` / `repairIfBroken()` 都会调 `resetTranslationY()` 归零，
+   **且只归零 Y** —— 容器的 `onLayout` 把所有子 View 都摆在 x=0、位置完全由
+   `translationX` 决定，归零 X 会让视图滑到容器左边界。
+
+   槽位的固定行数已提取成常量 `MeterSlot.MAX_LINES = 2`，`create()` 与
+   `repairIfBroken()` 共用同一个值，避免两处写死后不同步。心跳日志现在带
+   `高 / 行数 / 单行 / 位移Y` 四个诊断字段，下次出问题可直接从日志判断是
+   `maxLines` 被改还是高度被压。
 
 ### 数据源（全部只读，无 MIUI 私有 API）
 

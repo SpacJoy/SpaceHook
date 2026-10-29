@@ -62,6 +62,9 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
     /** 槽位心跳计数（低频打印运行态） */
     private var slotHeartbeat = 0
 
+    /** 自愈修复日志剩余条数（排查完置 0 即可静音） */
+    private var repairDiagLeft = 10
+
     private val dumpedViews = HashSet<Int>()
 
     /** 视图来源链只打印一次 */
@@ -82,6 +85,18 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                 // 仪表走的是独立槽位，不依赖原生网速视图；以前这里 return 会导致
                 // 网速视图被清空（例如超级岛出现、状态栏重建）之后仪表也跟着停住不再刷新。
                 if (StatusBarMeterState.active) {
+                    // 自愈：槽位 TextView 的 maxLines / singleLine 被外部改过就改回去。
+                    // 已知会改它的是原生 setTextAppearance（主题/字号刷新时触发）和
+                    // 状态栏重建；这里兜住所有路径，让用户看不到故障而不是等重启 SystemUI。
+                    if (MeterSlot.repairIfBroken()) {
+                        if (repairDiagLeft > 0) {
+                            repairDiagLeft--
+                            logw(
+                                "槽位行数被外部改动，已修复：行数=" + MeterSlot.maxLinesForLog() +
+                                    " 单行=" + MeterSlot.singleLineForLog(),
+                            )
+                        }
+                    }
                     // 网速链路：仍然写原生网速视图。
                     // 一次刷新只组装一次——网速是差分采样，组装两遍会白白推进一次基线。
                     val text = StatusBarMeterState.composeNative()
@@ -315,6 +330,10 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
                     "附着=" + (v?.isAttachedToWindow ?: false) +
                     " 可见=" + (v?.isShown ?: false) +
                     " 宽=" + (v?.width ?: -1) +
+                    " 高=" + MeterSlot.heightForLog() +
+                    " 行数=" + MeterSlot.maxLinesForLog() +
+                    " 单行=" + MeterSlot.singleLineForLog() +
+                    " 位移Y=" + MeterSlot.translationYForLog() +
                     " 下标=" + ((v?.parent as? ViewGroup)?.indexOfChild(v) ?: -1),
             )
         }
@@ -457,6 +476,21 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      */
     private fun applyStyle(target: Any?) {
         val view = target as? View ?: return
+
+        // 槽位视图走独立通道：只改字号/字重/对齐，绝不碰 maxLines 与容器结构。
+        // 它和原生网速视图是同一套类，但排布模型完全不同（单 TextView + \n 双行
+        // vs 两个文本框各限 1 行），混用同一套 applyStyle 会把温度那行裁掉。
+        if (MeterSlot.isSlotView(view)) {
+            val contributor = StatusBarMeterState.separateContributor()
+            MeterSlot.applyTextStyle(
+                fontSizeSp = contributor?.fontSizeSp ?: 0,
+                fontStyle = contributor?.fontStyle ?: StatusBarMeterState.FONT_DEFAULT,
+                align = contributor?.align ?: StatusBarMeterState.ALIGN_NATIVE,
+            )
+            MeterSlot.repairIfBroken()
+            return
+        }
+
         try {
             val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
             val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
@@ -544,6 +578,12 @@ internal abstract class StatusBarMeterHookBase(id: String) : BaseHook(id) {
      * 单行时把右列 GONE。
      */
     private fun applyLayout(view: View, dual: Boolean) {
+        // 槽位视图有自己的排布（单 TextView + \n 双行），**不能**套用原生视图的
+        // 「拆成两个框、各限 1 行」规则。详见 MeterSlot.applyTextStyle 的注释：
+        // 那条规则会把槽位的 maxLines 从 2 改成 1，温度那行被裁掉，但字符串还在，
+        // 表现为「日志里有温度、屏幕上没有」。
+        if (MeterSlot.isSlotView(view)) return
+
         val number = getField(view, FIELD_NUMBER_TEXT) as? TextView ?: return
         val unit = getField(view, FIELD_UNIT_TEXT) as? TextView ?: return
 
