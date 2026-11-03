@@ -174,17 +174,32 @@ class DeviceCenterSizeHook : MiuiPluginHook("device_center_size") {
         logd("已挂 handleUpdateList（条目上限）")
     }
 
-    /** Hook 2：高度落地的汇聚点 `DeviceCenterEntryViewHolder#changeMode(Mode, …)` */
+    /** Hook 2：高度落地的汇聚点 `DeviceCenterEntryViewHolder#changeMode(Mode, boolean, boolean, boolean)` */
     private fun hookViewHolder(viewHolder: Class<*>?, modeClass: Class<*>?) {
         if (viewHolder == null || modeClass == null) return
-        before(viewHolder, "changeMode") { chain ->
+
+        // 精确指定参数类型：这个类里还有 D8 合成的 `changeMode$default(…, int, Object)` 桥，
+        // 不指定的话 `findMethod` 可能命中那个，参数下标全错位。
+        val paramTypes = arrayOf(modeClass, Boolean::class.java, Boolean::class.java, Boolean::class.java)
+        replace(viewHolder, "changeMode", paramTypes) { chain ->
             val mode = cfgMode
             val forced = when (mode) {
                 MODE_SINGLE -> getEnumConstant(modeClass, "MODE_1_ROW")
                 MODE_DOUBLE -> getEnumConstant(modeClass, "MODE_2_ROWS")
                 else -> null
-            } ?: return@before
-            chain.args[0] = forced
+            }
+            if (forced == null) {
+                chain.proceed()
+            } else {
+                // **不能写 `chain.args[0] = forced`。**
+                // API 102 的 `Chain.getArgs()` 返回的是框架给的**只读列表**
+                // （堆栈里是 `Collections$UnmodifiableList.set` → `UnsupportedOperationException`），
+                // 直接下标赋值必然抛异常，被 BaseHook 兜住后刷满日志。
+                // 正确做法：拷一份数组、改完用 `proceed(newArgs)` 传进去。
+                val newArgs = chain.args.toTypedArray()
+                newArgs[0] = forced
+                chain.proceed(newArgs)
+            }
         }
         logd("已挂 changeMode（强制行数）")
     }

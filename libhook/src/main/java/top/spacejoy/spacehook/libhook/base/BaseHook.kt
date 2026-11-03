@@ -20,16 +20,28 @@ import java.lang.reflect.Modifier
  * 与旧版 XposedBridge 不同，新 API 采用「拦截器链」模型：
  * - [Chain.proceed]     → 继续执行原方法，返回值即最终返回给调用方的值
  * - [Chain.proceedWith] → 跳过原方法，直接返回指定值
- * - [Chain.args]        → 可直接修改参数列表
+ * - [Chain.args]        → **只读**！改参数要拷贝数组后 `proceed(newArgs)`，见下
  * - 拦截块 `return` 的值就是方法返回值（不要忘了 `return chain.proceed()`）
+ *
+ * ## ⚠️ 改参数不能用下标赋值
+ * API 102 的 `Chain.getArgs()` 返回的是框架给的 `Collections$UnmodifiableList`，
+ * `chain.args[0] = x` 会抛 `UnsupportedOperationException`（被 try/catch 吞掉后
+ * 表现为「hook 静默不生效」或日志刷异常）。正确写法：
+ * ```kotlin
+ * val newArgs = chain.args.toTypedArray()
+ * newArgs[0] = "被改掉的参数"
+ * chain.proceed(newArgs)
+ * ```
  *
  * ## 写一个 Hook 的标准流程
  * ```kotlin
  * class MyLoad : BaseLoad("my_hook") {
  *     override fun onHook() {
  *         val clazz = requireClass("com.example.Target") ?: return
- *         before(clazz, "doSomething") { chain ->
- *             chain.args[0] = "被改掉的参数"
+ *         replace(clazz, "doSomething") { chain ->
+ *             val newArgs = chain.args.toTypedArray()
+ *             newArgs[0] = "被改掉的参数"
+ *             chain.proceed(newArgs)
  *         }
  *     }
  * }

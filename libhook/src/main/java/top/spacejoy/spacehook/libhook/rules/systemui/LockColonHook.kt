@@ -106,8 +106,14 @@ class LockColonHook : BaseHook("lock_colon") {
         // 1) KeyguardOTAInteractor：生成 / 写回编辑器信息
         findClass(CLS_OTA_INTERACTOR)?.let { clazz ->
             for (method in arrayOf("generateEditorInfo", "writeEditorInfoIntoSettings")) {
-                before(clazz, method, arrayOf(String::class.java)) { chain ->
-                    if (patchStringArg(chain, 0)) logd("$method 已把 isColonShow 改写为 true")
+                replace(clazz, method, arrayOf(String::class.java)) { chain ->
+                    val newArgs = patchStringArgs(chain, 0)
+                    if (newArgs != null) {
+                        logd("$method 已把 isColonShow 改写为 true")
+                        chain.proceed(newArgs)
+                    } else {
+                        chain.proceed()
+                    }
                 }
             }
             logd("KeyguardOTAInteractor 已挂载")
@@ -118,10 +124,19 @@ class LockColonHook : BaseHook("lock_colon") {
             for (method in arrayOf("putString", "putStringForUser")) {
                 hookAllMethods(clazz, method) { chain ->
                     val key = chain.args.getOrNull(1) as? String
-                    if (key == COLON_KEY && patchStringArg(chain, 2)) {
-                        logd("$method 已把存盘值改写为 true")
+                    if (key == COLON_KEY) {
+                        // 不能就地改 chain.args（只读列表，见 patchStringArg 注释），
+                        // 改完要自己把新参数传给 proceed
+                        val newArgs = patchStringArgs(chain, 2)
+                        if (newArgs != null) {
+                            logd("$method 已把存盘值改写为 true")
+                            chain.proceed(newArgs)
+                        } else {
+                            chain.proceed()
+                        }
+                    } else {
+                        chain.proceed()
                     }
-                    chain.proceed()
                 }
             }
             logd("Settings.Secure 写入层已挂载")
@@ -130,21 +145,37 @@ class LockColonHook : BaseHook("lock_colon") {
 
     // ==================== 工具 ====================
 
-    /** 把第 [index] 个 String 参数里的 isColonShow:false 改写成 true */
-    private fun patchStringArg(chain: io.github.libxposed.api.XposedInterface.Chain, index: Int): Boolean {
-        val raw = chain.args.getOrNull(index) as? String ?: return false
-        val patched = patchColonJson(raw) ?: return false
-        if (patched == raw) return false
-        @Suppress("UNCHECKED_CAST")
-        (chain.args as MutableList<Any?>)[index] = patched
-        return true
+    /**
+     * 把第 [index] 个 String 参数里的 isColonShow:false 改写成 true。
+     *
+     * **不能写 `chain.args[index] = ...`**：API 102 的 `Chain.getArgs()` 返回的是
+     * 框架给的**只读列表**（`Collections$UnmodifiableList`），任何 `set` 都会抛
+     * `UnsupportedOperationException`，被 BaseHook 兜住后刷满日志。
+     * 正确做法是拷一份数组、改完交给调用方 `proceed(newArgs)`。
+     *
+     * @return 改好的参数数组；无需修改时返回 null
+     */
+    private fun patchStringArgs(
+        chain: io.github.libxposed.api.XposedInterface.Chain,
+        index: Int,
+    ): Array<Any?>? {
+        val raw = chain.args.getOrNull(index) as? String ?: return null
+        val patched = patchColonJson(raw) ?: return null
+        if (patched == raw) return null
+        val newArgs = chain.args.toTypedArray()
+        newArgs[index] = patched
+        return newArgs
     }
 
     /** 把某个 boolean 参数强制为 true */
     private fun beforeBooleanArg(clazz: Class<*>, methodName: String) {
-        before(clazz, methodName, arrayOf(Boolean::class.javaPrimitiveType!!)) { chain ->
-            if (chain.args.getOrNull(0) != true) {
-                chain.args[0] = true
+        replace(clazz, methodName, arrayOf(Boolean::class.javaPrimitiveType!!)) { chain ->
+            if (chain.args.getOrNull(0) == true) {
+                chain.proceed()
+            } else {
+                val newArgs = chain.args.toTypedArray()
+                newArgs[0] = true
+                chain.proceed(newArgs)
             }
         }
     }
