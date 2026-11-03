@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.SystemClock
+import top.spacejoy.spacehook.libhook.utils.XLog
 import java.io.File
 import java.util.Locale
 
@@ -102,6 +103,9 @@ internal class MeterReader(private val context: Context) {
 
     private var thermalGroups: List<List<String>>? = null
 
+    /** 上次扫描节点的时刻，用于扫空后的重扫退避（见 [thermalGroups]） */
+    private var thermalScanAt = 0L
+
     /**
      * 按优先级分好组的温度区 temp 节点：cpu → soc → ap → gpu。
      *
@@ -110,10 +114,23 @@ internal class MeterReader(private val context: Context) {
      * 95 / 0 / −273 这类定值。`File.listFiles()` 的返回顺序不保证，一旦按顺序
      * 撞上 `cpu-hw-trip-0`，温度就会永远卡在 95℃ 不动。
      *
-     * 只扫一次并缓存分组——节点表在运行期不会变。
+     * ## 缓存策略
+     * 节点表在运行期不会变，所以正常只扫一次。但**扫空时不能每秒重扫**：
+     * 以前 `if (result.any { it.isNotEmpty() }) thermalGroups = result` 只在扫到节点时
+     * 才缓存，扫空就每秒重新 `listFiles()` + 读 96 个 `type` 文件——而这个函数是
+     * 每秒调一次的主线程路径，等于白白烧 CPU。
+     *
+     * 现在用 `thermalScanAt` 做退避：扫空后 30 秒内直接返回空分组、不碰文件系统。
+     * 30 秒足够覆盖开机早期节点还没就绪的情况，又不会长期空转。
      */
     private fun thermalGroups(): List<List<String>> {
         thermalGroups?.let { return it }
+
+        // 扫空后的退避：30 秒内直接返回，不碰文件系统
+        val now = SystemClock.elapsedRealtime()
+        if (thermalScanAt != 0L && now - thermalScanAt < THERMAL_RESCAN_MS) return EMPTY_GROUPS
+        thermalScanAt = now
+
         val zones = File(THERMAL_ROOT).listFiles()
             ?.filter { it.isDirectory }
             ?.sortedBy { it.name.filter(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }
@@ -134,7 +151,12 @@ internal class MeterReader(private val context: Context) {
             groups[index].add(temp.absolutePath)
         }
         val result: List<List<String>> = groups
-        if (result.any { it.isNotEmpty() }) thermalGroups = result
+        if (result.any { it.isNotEmpty() }) {
+            thermalGroups = result
+            logOnce("thermal-ready", "thermal 节点已就绪：${result.map { it.size }}")
+        } else {
+            logOnce("thermal-empty", "thermal 节点扫描为空，${THERMAL_RESCAN_MS / 1000}s 后重试")
+        }
         return result
     }
 
@@ -222,6 +244,9 @@ internal class MeterReader(private val context: Context) {
         return speed.rx + speed.tx
     }
 
+    /** 同一 key 只打一次日志，避免每秒刷屏（转给 XLog.once） */
+    private fun logOnce(key: String, message: String) = XLog.once("MeterReader:$key", message)
+
     internal companion object {
 
         private const val POWER_SUPPLY_ROOT = "/sys/class/power_supply"
@@ -230,11 +255,23 @@ internal class MeterReader(private val context: Context) {
         /** 同一帧内网速结果的复用窗口 */
         private const val SPEED_CACHE_MS = 200L
 
+        /**
+         * thermal 节点扫描失败后的重扫间隔。
+         *
+         * 这个函数每秒被调一次（仪表刷新节奏），扫空时不能跟着每秒重扫
+         * 96 个 zone 的 `type` 文件，否则白白烧 CPU。30 秒足够覆盖开机早期
+         * 节点还没就绪的情况，又不会长期空转。
+         */
+        private const val THERMAL_RESCAN_MS = 30_000L
+
         /** current_now 常见挂载点 */
         private val POWER_SUPPLY_DIRS = arrayOf("battery", "bms", "Battery", "BATTERY", "battery2")
 
         /** 温度区 type 的匹配优先级 */
         private val THERMAL_KEYS = arrayOf("cpu", "soc", "ap", "gpu")
+
+        /** 扫空时返回的空分组（避免每次分配新对象；须声明在 THERMAL_KEYS 之后） */
+        private val EMPTY_GROUPS: List<List<String>> = List(THERMAL_KEYS.size) { emptyList() }
 
         /**
          * 阈值 / 上限 / 无效节点的特征词。
